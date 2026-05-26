@@ -17,6 +17,7 @@ public final class ScreenStrokeRecorder {
     private let sampleWidth: CGFloat = 34
     private let minimumPointDistance: CGFloat = 3
     private let minimumRollDelta: CGFloat = .pi / 90
+    private let maxSamples = 260
 
     public init() {}
 
@@ -40,7 +41,11 @@ public final class ScreenStrokeRecorder {
         isRecording = false
     }
 
-    public func record(pose: CameraPose, in viewportSize: CGSize) {
+    public func record(
+        pose: CameraPose,
+        in viewportSize: CGSize,
+        capturedImageProvider: () -> CGImage? = { nil }
+    ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
             return
         }
@@ -57,7 +62,13 @@ public final class ScreenStrokeRecorder {
         let rollRadians = CGFloat(Self.relativeRoll(from: anchorTransform, to: pose.transform))
 
         if shouldAppend(point: point, rollRadians: rollRadians) {
-            append(point: point, rollRadians: rollRadians, timestamp: pose.timestamp, viewportSize: viewportSize)
+            append(
+                point: point,
+                rollRadians: rollRadians,
+                timestamp: pose.timestamp,
+                viewportSize: viewportSize,
+                capturedImage: capturedImageProvider()
+            )
         }
     }
 
@@ -92,7 +103,8 @@ public final class ScreenStrokeRecorder {
         point: CGPoint,
         rollRadians: CGFloat,
         timestamp: TimeInterval,
-        viewportSize: CGSize
+        viewportSize: CGSize,
+        capturedImage: CGImage?
     ) {
         let normalizedPoint = CGPoint(
             x: point.x / viewportSize.width,
@@ -104,9 +116,14 @@ public final class ScreenStrokeRecorder {
                 normalizedPoint: normalizedPoint,
                 rollRadians: rollRadians,
                 width: sampleWidth,
-                timestamp: timestamp
+                timestamp: timestamp,
+                capturedImage: capturedImage
             )
         )
+
+        if samples.count > maxSamples {
+            samples.removeFirst(samples.count - maxSamples)
+        }
 
         lastRenderedPoint = point
         lastRollRadians = rollRadians

@@ -6,7 +6,7 @@
 - Swift 6, SwiftUI + UIKit bridge for ARKit views.
 - ARKit `ARWorldTrackingConfiguration` provides 6DoF pose tracking and camera frames.
 - Device translation maps to screen-space stroke movement; device rotation/roll should affect stroke curve, skew, and image-slice orientation.
-- Metal is planned for texture-mapped screen-space stroke compositing in later milestones.
+- The current prototype may use CPU/CoreGraphics image patches first; Metal is planned for higher-quality texture-mapped screen-space stroke compositing in later milestones.
 - Minimum deployment: iOS 17.0.
 
 ## MCP Tools

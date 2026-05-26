@@ -7,19 +7,22 @@ public struct ScreenStrokeSample: Identifiable {
     public let rollRadians: CGFloat
     public let width: CGFloat
     public let timestamp: TimeInterval
+    public let capturedImage: CGImage?
 
     public init(
         id: UUID = UUID(),
         normalizedPoint: CGPoint,
         rollRadians: CGFloat,
         width: CGFloat,
-        timestamp: TimeInterval
+        timestamp: TimeInterval,
+        capturedImage: CGImage? = nil
     ) {
         self.id = id
         self.normalizedPoint = normalizedPoint
         self.rollRadians = rollRadians
         self.width = width
         self.timestamp = timestamp
+        self.capturedImage = capturedImage
     }
 
     public func point(in size: CGSize) -> CGPoint {

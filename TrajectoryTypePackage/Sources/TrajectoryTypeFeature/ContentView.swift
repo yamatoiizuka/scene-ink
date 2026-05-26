@@ -28,7 +28,9 @@ public struct ContentView: View {
                     return
                 }
 
-                strokeRecorder.record(pose: pose, in: proxy.size)
+                strokeRecorder.record(pose: pose, in: proxy.size) {
+                    sessionManager.makeCurrentFrameSnapshot()
+                }
             }
         }
         .onAppear {
@@ -91,6 +93,7 @@ public struct ContentView: View {
             }
 
             Text("stroke samples: \(strokeRecorder.samples.count)")
+            Text("image samples: \(strokeRecorder.samples.filter { $0.capturedImage != nil }.count)")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)

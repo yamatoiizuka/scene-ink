@@ -9,6 +9,7 @@ public final class ARSessionManager: NSObject {
     public private(set) var latestPose: CameraPose?
     public private(set) var trackingDescription = "AR session is not running."
     public private(set) var isRunning = false
+    private let frameCapture = FrameCapture()
 
     public override init() {
         self.session = ARSession()
@@ -37,6 +38,14 @@ public final class ARSessionManager: NSObject {
         session.pause()
         isRunning = false
         trackingDescription = "AR session paused."
+    }
+
+    public func makeCurrentFrameSnapshot() -> CGImage? {
+        guard let frame = session.currentFrame else {
+            return nil
+        }
+
+        return frameCapture.makeSnapshot(from: frame.capturedImage)
     }
 
     private func update(with pose: CameraPose, trackingDescription: String) {
