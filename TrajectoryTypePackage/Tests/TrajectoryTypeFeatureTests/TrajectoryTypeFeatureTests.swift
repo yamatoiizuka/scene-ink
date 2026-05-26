@@ -22,7 +22,11 @@ import Testing
     var translated = matrix_identity_float4x4
     translated.columns.3 = SIMD4<Float>(0.05, 0.03, 0, 1)
 
-    recorder.begin()
+    recorder.begin(
+        at: CGPoint(x: 200, y: 400),
+        in: viewportSize,
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 0)
+    )
     recorder.record(
         pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
         in: viewportSize,
@@ -36,11 +40,11 @@ import Testing
         brushAngleRadians: 0
     )
 
-    #expect(recorder.samples.count == 2)
-    #expect(abs(recorder.samples[0].normalizedPoint.x - 0.5) < 0.000_1)
-    #expect(abs(recorder.samples[0].normalizedPoint.y - 0.5) < 0.000_1)
-    #expect(recorder.samples[1].normalizedPoint.x > recorder.samples[0].normalizedPoint.x)
-    #expect(recorder.samples[1].normalizedPoint.y > recorder.samples[0].normalizedPoint.y)
+    #expect(recorder.activeSamples.count == 2)
+    #expect(abs(recorder.activeSamples[0].normalizedPoint.x - 0.5) < 0.000_1)
+    #expect(abs(recorder.activeSamples[0].normalizedPoint.y - 0.5) < 0.000_1)
+    #expect(recorder.activeSamples[1].normalizedPoint.x > recorder.activeSamples[0].normalizedPoint.x)
+    #expect(recorder.activeSamples[1].normalizedPoint.y > recorder.activeSamples[0].normalizedPoint.y)
 }
 
 @Test func screenTranslationRotatesCameraAxesIntoPortraitScreenAxes() async throws {
@@ -59,4 +63,35 @@ import Testing
 
     #expect(abs(left) < 0.000_1)
     #expect(abs(down - (.pi / 2)) < 0.000_1)
+}
+
+@MainActor
+@Test func endingRecorderCommitsActiveStrokeInDrawOrder() async throws {
+    let recorder = ScreenStrokeRecorder()
+    let viewportSize = CGSize(width: 400, height: 800)
+    var translated = matrix_identity_float4x4
+    translated.columns.3 = SIMD4<Float>(0.02, 0.02, 0, 1)
+
+    recorder.begin(
+        at: CGPoint(x: 120, y: 300),
+        in: viewportSize,
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 0)
+    )
+    recorder.record(
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
+        in: viewportSize,
+        brushWidth: 12,
+        brushAngleRadians: 0
+    )
+    recorder.record(
+        pose: CameraPose(transform: translated, timestamp: 2),
+        in: viewportSize,
+        brushWidth: 12,
+        brushAngleRadians: 0
+    )
+    recorder.end()
+
+    #expect(recorder.strokes.count == 1)
+    #expect(recorder.activeSamples.isEmpty)
+    #expect(recorder.displayStrokes.map(\.id) == recorder.strokes.map(\.id))
 }

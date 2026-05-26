@@ -2,10 +2,10 @@ import SwiftUI
 import UIKit
 
 public struct StrokeCanvasView: UIViewRepresentable {
-    private let samples: [ScreenStrokeSample]
+    private let strokes: [ScreenStroke]
 
-    public init(samples: [ScreenStrokeSample]) {
-        self.samples = samples
+    public init(strokes: [ScreenStroke]) {
+        self.strokes = strokes
     }
 
     public func makeUIView(context: Context) -> StrokeCompositorUIView {
@@ -19,27 +19,31 @@ public struct StrokeCanvasView: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: StrokeCompositorUIView, context: Context) {
-        uiView.samples = samples
+        uiView.strokes = strokes
     }
 }
 
 public final class StrokeCompositorUIView: UIView {
-    public var samples: [ScreenStrokeSample] = [] {
+    public var strokes: [ScreenStroke] = [] {
         didSet {
             setNeedsDisplay()
         }
     }
 
     public override func draw(_ rect: CGRect) {
-        guard samples.count > 1, let context = UIGraphicsGetCurrentContext() else {
+        guard let context = UIGraphicsGetCurrentContext() else {
             return
         }
 
-        for index in samples.indices.dropFirst() {
-            drawSegment(from: samples[index - 1], to: samples[index], in: context)
+        for stroke in strokes where stroke.samples.count > 1 {
+            drawStroke(stroke, in: context)
         }
+    }
 
-        strokeRibbonOutline(makeRibbonPath(in: bounds.size), in: context)
+    private func drawStroke(_ stroke: ScreenStroke, in context: CGContext) {
+        for index in stroke.samples.indices.dropFirst() {
+            drawSegment(from: stroke.samples[index - 1], to: stroke.samples[index], in: context)
+        }
     }
 
     private func drawSegment(
@@ -88,15 +92,6 @@ public final class StrokeCompositorUIView: UIView {
         context.restoreGState()
     }
 
-    private func strokeRibbonOutline(_ ribbonPath: UIBezierPath, in context: CGContext) {
-        context.saveGState()
-        context.addPath(ribbonPath.cgPath)
-        context.setStrokeColor(UIColor.white.withAlphaComponent(0.45).cgColor)
-        context.setLineWidth(1.5)
-        context.strokePath()
-        context.restoreGState()
-    }
-
     private func averageCrossVector(from previous: ScreenStrokeSample, to current: ScreenStrokeSample) -> CGVector {
         let previousVector = FrameCapture.crossVector(forBrushAngle: previous.brushAngleRadians)
         let currentVector = FrameCapture.crossVector(forBrushAngle: current.brushAngleRadians)
@@ -111,7 +106,7 @@ public final class StrokeCompositorUIView: UIView {
         return CGVector(dx: dx / length, dy: dy / length)
     }
 
-    private func makeRibbonPath(in size: CGSize) -> UIBezierPath {
+    private func makeRibbonPath(for samples: [ScreenStrokeSample], in size: CGSize) -> UIBezierPath {
         let edges = samples.map { sample in
             let point = sample.point(in: size)
             let direction = FrameCapture.crossVector(forBrushAngle: sample.brushAngleRadians)

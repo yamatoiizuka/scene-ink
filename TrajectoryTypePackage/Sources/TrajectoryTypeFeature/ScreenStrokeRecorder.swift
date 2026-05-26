@@ -6,10 +6,12 @@ import simd
 @MainActor
 @Observable
 public final class ScreenStrokeRecorder {
-    public private(set) var samples: [ScreenStrokeSample] = []
+    public private(set) var strokes: [ScreenStroke] = []
+    public private(set) var activeSamples: [ScreenStrokeSample] = []
     public private(set) var isRecording = false
 
     private var anchorTransform: simd_float4x4?
+    private var startPoint: CGPoint?
     private var lastRenderedPoint: CGPoint?
     private var lastBrushAngleRadians: CGFloat = 0
     private var lastWidth: CGFloat = 0
@@ -21,9 +23,33 @@ public final class ScreenStrokeRecorder {
 
     public init() {}
 
-    public func begin() {
-        samples.removeAll(keepingCapacity: true)
-        anchorTransform = nil
+    public var displayStrokes: [ScreenStroke] {
+        guard !activeSamples.isEmpty else {
+            return strokes
+        }
+
+        return strokes + [ScreenStroke(samples: activeSamples)]
+    }
+
+    public var sampleCount: Int {
+        strokes.reduce(activeSamples.count) { count, stroke in
+            count + stroke.samples.count
+        }
+    }
+
+    public var brushSectionSampleCount: Int {
+        let committedCount = strokes.reduce(0) { count, stroke in
+            count + stroke.samples.filter { $0.brushSectionImage != nil }.count
+        }
+        let activeCount = activeSamples.filter { $0.brushSectionImage != nil }.count
+
+        return committedCount + activeCount
+    }
+
+    public func begin(at point: CGPoint, in viewportSize: CGSize, pose: CameraPose?) {
+        activeSamples.removeAll(keepingCapacity: true)
+        anchorTransform = pose?.transform
+        startPoint = point
         lastRenderedPoint = nil
         lastBrushAngleRadians = 0
         lastWidth = 0
@@ -31,12 +57,22 @@ public final class ScreenStrokeRecorder {
     }
 
     public func end() {
+        if !activeSamples.isEmpty {
+            strokes.append(ScreenStroke(samples: activeSamples))
+        }
+
+        activeSamples.removeAll(keepingCapacity: true)
+        anchorTransform = nil
+        startPoint = nil
+        lastRenderedPoint = nil
         isRecording = false
     }
 
     public func clear() {
-        samples.removeAll(keepingCapacity: true)
+        strokes.removeAll(keepingCapacity: true)
+        activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = nil
+        startPoint = nil
         lastRenderedPoint = nil
         lastBrushAngleRadians = 0
         lastWidth = 0
@@ -58,11 +94,16 @@ public final class ScreenStrokeRecorder {
             anchorTransform = pose.transform
         }
 
-        guard let anchorTransform else {
+        guard let anchorTransform, let startPoint else {
             return
         }
 
-        let point = screenPoint(for: pose.transform, anchorTransform: anchorTransform, viewportSize: viewportSize)
+        let point = screenPoint(
+            for: pose.transform,
+            anchorTransform: anchorTransform,
+            startPoint: startPoint,
+            viewportSize: viewportSize
+        )
 
         if shouldAppend(point: point, brushWidth: brushWidth, brushAngleRadians: brushAngleRadians) {
             append(
@@ -79,6 +120,7 @@ public final class ScreenStrokeRecorder {
     private func screenPoint(
         for transform: simd_float4x4,
         anchorTransform: simd_float4x4,
+        startPoint: CGPoint,
         viewportSize: CGSize
     ) -> CGPoint {
         let relative = Self.relativeTranslation(from: anchorTransform, to: transform)
@@ -86,8 +128,8 @@ public final class ScreenStrokeRecorder {
         let screenTranslation = Self.screenTranslation(from: relative) * Float(pointsPerMeter)
 
         return CGPoint(
-            x: (viewportSize.width / 2) + CGFloat(screenTranslation.x),
-            y: (viewportSize.height / 2) + CGFloat(screenTranslation.y)
+            x: startPoint.x + CGFloat(screenTranslation.x),
+            y: startPoint.y + CGFloat(screenTranslation.y)
         )
     }
 
@@ -118,7 +160,7 @@ public final class ScreenStrokeRecorder {
             y: point.y / viewportSize.height
         )
 
-        samples.append(
+        activeSamples.append(
             ScreenStrokeSample(
                 normalizedPoint: normalizedPoint,
                 brushAngleRadians: brushAngleRadians,
@@ -128,8 +170,8 @@ public final class ScreenStrokeRecorder {
             )
         )
 
-        if samples.count > maxSamples {
-            samples.removeFirst(samples.count - maxSamples)
+        if activeSamples.count > maxSamples {
+            activeSamples.removeFirst(activeSamples.count - maxSamples)
         }
 
         lastRenderedPoint = point

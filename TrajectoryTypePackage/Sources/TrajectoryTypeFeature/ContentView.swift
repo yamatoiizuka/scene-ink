@@ -13,9 +13,25 @@ public struct ContentView: View {
             ZStack(alignment: .bottomLeading) {
                 ARViewContainer(sessionManager: sessionManager)
                     .ignoresSafeArea()
+                    .opacity(strokeRecorder.isRecording ? 0 : 1)
 
-                StrokeCanvasView(samples: strokeRecorder.samples)
+                Color.black
                     .ignoresSafeArea()
+                    .opacity(strokeRecorder.isRecording ? 1 : 0)
+
+                StrokeCanvasView(strokes: strokeRecorder.displayStrokes)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                StrokeTouchSurface { point, size in
+                    if strokeRecorder.isRecording {
+                        strokeRecorder.end()
+                    } else {
+                        sessionManager.brushAngleRadians = brushAngleRadians
+                        strokeRecorder.begin(at: point, in: size, pose: sessionManager.latestPose)
+                    }
+                }
+                .ignoresSafeArea()
 
                 controls
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -25,6 +41,7 @@ public struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.leading)
                     .padding(.top, 16)
+                    .allowsHitTesting(false)
             }
             .onChange(of: sessionManager.latestPose?.timestamp) {
                 guard let pose = sessionManager.latestPose else {
@@ -72,26 +89,8 @@ public struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.black.opacity(0.72))
-                .disabled(strokeRecorder.samples.isEmpty)
+                .disabled(strokeRecorder.sampleCount == 0)
                 .accessibilityLabel("Clear stroke")
-
-                Button {
-                    if strokeRecorder.isRecording {
-                        strokeRecorder.end()
-                    } else {
-                        strokeRecorder.begin()
-                    }
-                } label: {
-                    Label(
-                        strokeRecorder.isRecording ? "End" : "Start",
-                        systemImage: strokeRecorder.isRecording ? "stop.fill" : "record.circle"
-                    )
-                    .font(.system(.headline, design: .rounded))
-                    .frame(minWidth: 112, minHeight: 48)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(strokeRecorder.isRecording ? .red : .white)
-                .foregroundStyle(strokeRecorder.isRecording ? .white : .black)
             }
         }
         .padding(.horizontal, 18)
@@ -102,8 +101,10 @@ public struct ContentView: View {
             Text(sessionManager.trackingDescription)
                 .font(.system(.footnote, design: .rounded))
 
-            Text("stroke samples: \(strokeRecorder.samples.count)")
-            Text("section samples: \(strokeRecorder.samples.filter { $0.brushSectionImage != nil }.count)")
+            Text(strokeRecorder.isRecording ? "recording: on" : "recording: off")
+            Text("strokes: \(strokeRecorder.strokes.count)")
+            Text("stroke samples: \(strokeRecorder.sampleCount)")
+            Text("section samples: \(strokeRecorder.brushSectionSampleCount)")
             Text("brush: \(brushWidthPixels)px \(Int(RotaryBrushControl.degrees(from: brushAngleRadians).rounded()))°")
         }
         .font(.system(.caption, design: .monospaced))
