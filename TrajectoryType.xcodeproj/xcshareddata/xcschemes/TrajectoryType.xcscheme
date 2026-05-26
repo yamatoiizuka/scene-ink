@@ -30,9 +30,6 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:TrajectoryType.xctestplan">
-         </TestPlanReference>
-         <TestPlanReference
             reference = "container:TrajectoryType/TrajectoryType.xctestplan"
             default = "YES">
          </TestPlanReference>

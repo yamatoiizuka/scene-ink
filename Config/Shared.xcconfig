@@ -18,14 +18,16 @@ CURRENT_PROJECT_VERSION = 1
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 
 // (1 == iPhone, 2 == iPad)
-TARGETED_DEVICE_FAMILY = 1,2 
+TARGETED_DEVICE_FAMILY = 1
 
 // ==========================================
 // Info PLIST
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
-INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait
-INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait
+INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait
+INFOPLIST_KEY_NSCameraUsageDescription = 軌跡撮影のためにカメラを使用します
+INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = 撮影した文字を写真に保存します
 
 // ==========================================
 // Entitlements
