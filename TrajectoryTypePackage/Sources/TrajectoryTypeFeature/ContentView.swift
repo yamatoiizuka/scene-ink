@@ -5,6 +5,8 @@ import SwiftUI
 public struct ContentView: View {
     @State private var sessionManager = ARSessionManager()
     @State private var strokeRecorder = ScreenStrokeRecorder()
+    @State private var brushWidthPixels = 34
+    @State private var brushAngleRadians: CGFloat = 0
 
     public var body: some View {
         GeometryReader { proxy in
@@ -20,20 +22,31 @@ public struct ContentView: View {
                     .padding(.bottom, 28)
 
                 debugOverlay
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.leading)
-                    .padding(.bottom, 104)
+                    .padding(.top, 16)
             }
             .onChange(of: sessionManager.latestPose?.timestamp) {
                 guard let pose = sessionManager.latestPose else {
                     return
                 }
 
-                strokeRecorder.record(pose: pose, in: proxy.size) {
+                sessionManager.brushAngleRadians = brushAngleRadians
+                strokeRecorder.record(
+                    pose: pose,
+                    in: proxy.size,
+                    brushWidth: CGFloat(brushWidthPixels),
+                    brushAngleRadians: brushAngleRadians
+                ) {
                     sessionManager.latestBrushSection
                 }
             }
+            .onChange(of: brushAngleRadians) {
+                sessionManager.brushAngleRadians = brushAngleRadians
+            }
         }
         .onAppear {
+            sessionManager.brushAngleRadians = brushAngleRadians
             sessionManager.start()
         }
         .onDisappear {
@@ -44,37 +57,44 @@ public struct ContentView: View {
     public init() {}
 
     private var controls: some View {
-        HStack(spacing: 12) {
-            Button {
-                strokeRecorder.clear()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 48, height: 48)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.black.opacity(0.72))
-            .disabled(strokeRecorder.samples.isEmpty)
-            .accessibilityLabel("Clear stroke")
+        HStack(alignment: .bottom) {
+            RotaryBrushControl(widthPixels: $brushWidthPixels, angleRadians: $brushAngleRadians)
 
-            Button {
-                if strokeRecorder.isRecording {
-                    strokeRecorder.end()
-                } else {
-                    strokeRecorder.begin()
+            Spacer()
+
+            HStack(spacing: 12) {
+                Button {
+                    strokeRecorder.clear()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 48, height: 48)
                 }
-            } label: {
-                Label(
-                    strokeRecorder.isRecording ? "End Stroke" : "Start Stroke",
-                    systemImage: strokeRecorder.isRecording ? "stop.fill" : "record.circle"
-                )
-                .font(.system(.headline, design: .rounded))
-                .frame(minWidth: 156, minHeight: 48)
+                .buttonStyle(.borderedProminent)
+                .tint(.black.opacity(0.72))
+                .disabled(strokeRecorder.samples.isEmpty)
+                .accessibilityLabel("Clear stroke")
+
+                Button {
+                    if strokeRecorder.isRecording {
+                        strokeRecorder.end()
+                    } else {
+                        strokeRecorder.begin()
+                    }
+                } label: {
+                    Label(
+                        strokeRecorder.isRecording ? "End" : "Start",
+                        systemImage: strokeRecorder.isRecording ? "stop.fill" : "record.circle"
+                    )
+                    .font(.system(.headline, design: .rounded))
+                    .frame(minWidth: 112, minHeight: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(strokeRecorder.isRecording ? .red : .white)
+                .foregroundStyle(strokeRecorder.isRecording ? .white : .black)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(strokeRecorder.isRecording ? .red : .white)
-            .foregroundStyle(strokeRecorder.isRecording ? .white : .black)
         }
+        .padding(.horizontal, 18)
     }
 
     private var debugOverlay: some View {
@@ -82,18 +102,9 @@ public struct ContentView: View {
             Text(sessionManager.trackingDescription)
                 .font(.system(.footnote, design: .rounded))
 
-            if let pose = sessionManager.latestPose {
-                Text("pos: \(pose.positionDescription)")
-                Text("rot: \(pose.rotationDescription) deg")
-                Text("time: \(String(format: "%.2f", pose.timestamp))")
-            } else {
-                Text("pos: waiting")
-                Text("rot: waiting")
-                Text("time: waiting")
-            }
-
             Text("stroke samples: \(strokeRecorder.samples.count)")
             Text("section samples: \(strokeRecorder.samples.filter { $0.brushSectionImage != nil }.count)")
+            Text("brush: \(brushWidthPixels)px \(Int(RotaryBrushControl.degrees(from: brushAngleRadians).rounded()))°")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)

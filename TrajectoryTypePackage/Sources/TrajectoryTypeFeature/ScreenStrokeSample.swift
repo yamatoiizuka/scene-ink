@@ -4,7 +4,7 @@ import Foundation
 public struct ScreenStrokeSample: Identifiable {
     public let id: UUID
     public let normalizedPoint: CGPoint
-    public let rollRadians: CGFloat
+    public let brushAngleRadians: CGFloat
     public let width: CGFloat
     public let timestamp: TimeInterval
     public let brushSectionImage: CGImage?
@@ -12,14 +12,14 @@ public struct ScreenStrokeSample: Identifiable {
     public init(
         id: UUID = UUID(),
         normalizedPoint: CGPoint,
-        rollRadians: CGFloat,
+        brushAngleRadians: CGFloat,
         width: CGFloat,
         timestamp: TimeInterval,
         brushSectionImage: CGImage? = nil
     ) {
         self.id = id
         self.normalizedPoint = normalizedPoint
-        self.rollRadians = rollRadians
+        self.brushAngleRadians = brushAngleRadians
         self.width = width
         self.timestamp = timestamp
         self.brushSectionImage = brushSectionImage

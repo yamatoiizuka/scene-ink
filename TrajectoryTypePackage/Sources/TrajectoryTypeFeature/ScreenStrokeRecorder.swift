@@ -11,12 +11,12 @@ public final class ScreenStrokeRecorder {
 
     private var anchorTransform: simd_float4x4?
     private var lastRenderedPoint: CGPoint?
-    private var lastRollRadians: CGFloat = 0
+    private var lastBrushAngleRadians: CGFloat = 0
+    private var lastWidth: CGFloat = 0
 
     private let pointsPerScreen: CGFloat = 3
-    private let sampleWidth: CGFloat = 34
     private let minimumPointDistance: CGFloat = 3
-    private let minimumRollDelta: CGFloat = .pi / 90
+    private let minimumBrushAngleDelta: CGFloat = .pi / 90
     private let maxSamples = 260
 
     public init() {}
@@ -25,7 +25,8 @@ public final class ScreenStrokeRecorder {
         samples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         lastRenderedPoint = nil
-        lastRollRadians = 0
+        lastBrushAngleRadians = 0
+        lastWidth = 0
         isRecording = true
     }
 
@@ -37,13 +38,16 @@ public final class ScreenStrokeRecorder {
         samples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         lastRenderedPoint = nil
-        lastRollRadians = 0
+        lastBrushAngleRadians = 0
+        lastWidth = 0
         isRecording = false
     }
 
     public func record(
         pose: CameraPose,
         in viewportSize: CGSize,
+        brushWidth: CGFloat,
+        brushAngleRadians: CGFloat,
         brushSectionProvider: () -> CGImage? = { nil }
     ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
@@ -59,12 +63,12 @@ public final class ScreenStrokeRecorder {
         }
 
         let point = screenPoint(for: pose.transform, anchorTransform: anchorTransform, viewportSize: viewportSize)
-        let rollRadians = CGFloat(Self.relativeRoll(from: anchorTransform, to: pose.transform))
 
-        if shouldAppend(point: point, rollRadians: rollRadians) {
+        if shouldAppend(point: point, brushWidth: brushWidth, brushAngleRadians: brushAngleRadians) {
             append(
                 point: point,
-                rollRadians: rollRadians,
+                brushWidth: brushWidth,
+                brushAngleRadians: brushAngleRadians,
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
                 brushSectionImage: brushSectionProvider()
@@ -87,7 +91,7 @@ public final class ScreenStrokeRecorder {
         )
     }
 
-    private func shouldAppend(point: CGPoint, rollRadians: CGFloat) -> Bool {
+    private func shouldAppend(point: CGPoint, brushWidth: CGFloat, brushAngleRadians: CGFloat) -> Bool {
         guard let lastRenderedPoint else {
             return true
         }
@@ -95,14 +99,16 @@ public final class ScreenStrokeRecorder {
         let dx = point.x - lastRenderedPoint.x
         let dy = point.y - lastRenderedPoint.y
         let distance = sqrt((dx * dx) + (dy * dy))
-        let rollDelta = abs(rollRadians - lastRollRadians)
+        let brushAngleDelta = Self.angularDistance(brushAngleRadians, lastBrushAngleRadians)
+        let widthDelta = abs(brushWidth - lastWidth)
 
-        return distance >= minimumPointDistance || rollDelta >= minimumRollDelta
+        return distance >= minimumPointDistance || brushAngleDelta >= minimumBrushAngleDelta || widthDelta >= 1
     }
 
     private func append(
         point: CGPoint,
-        rollRadians: CGFloat,
+        brushWidth: CGFloat,
+        brushAngleRadians: CGFloat,
         timestamp: TimeInterval,
         viewportSize: CGSize,
         brushSectionImage: CGImage?
@@ -115,8 +121,8 @@ public final class ScreenStrokeRecorder {
         samples.append(
             ScreenStrokeSample(
                 normalizedPoint: normalizedPoint,
-                rollRadians: rollRadians,
-                width: sampleWidth,
+                brushAngleRadians: brushAngleRadians,
+                width: brushWidth,
                 timestamp: timestamp,
                 brushSectionImage: brushSectionImage
             )
@@ -127,7 +133,8 @@ public final class ScreenStrokeRecorder {
         }
 
         lastRenderedPoint = point
-        lastRollRadians = rollRadians
+        lastBrushAngleRadians = brushAngleRadians
+        lastWidth = brushWidth
     }
 
     nonisolated public static func relativeTranslation(
@@ -143,11 +150,8 @@ public final class ScreenStrokeRecorder {
         SIMD2(relativeTranslation.y, relativeTranslation.x)
     }
 
-    nonisolated public static func relativeRoll(
-        from anchorTransform: simd_float4x4,
-        to transform: simd_float4x4
-    ) -> Float {
-        let relativeTransform = simd_inverse(anchorTransform) * transform
-        return CameraPose.eulerAngles(from: relativeTransform).z
+    nonisolated public static func angularDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        let difference = abs(lhs - rhs).truncatingRemainder(dividingBy: .pi * 2)
+        return min(difference, (.pi * 2) - difference)
     }
 }

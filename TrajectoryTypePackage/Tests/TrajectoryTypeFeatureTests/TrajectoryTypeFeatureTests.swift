@@ -23,8 +23,18 @@ import Testing
     translated.columns.3 = SIMD4<Float>(0.05, 0.03, 0, 1)
 
     recorder.begin()
-    recorder.record(pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1), in: viewportSize)
-    recorder.record(pose: CameraPose(transform: translated, timestamp: 2), in: viewportSize)
+    recorder.record(
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
+        in: viewportSize,
+        brushWidth: 12,
+        brushAngleRadians: 0
+    )
+    recorder.record(
+        pose: CameraPose(transform: translated, timestamp: 2),
+        in: viewportSize,
+        brushWidth: 12,
+        brushAngleRadians: 0
+    )
 
     #expect(recorder.samples.count == 2)
     #expect(abs(recorder.samples[0].normalizedPoint.x - 0.5) < 0.000_1)
@@ -41,4 +51,12 @@ import Testing
     #expect(cameraLocalX.y > 0)
     #expect(cameraLocalY.x > 0)
     #expect(abs(cameraLocalY.y) < 0.000_1)
+}
+
+@Test func rotaryBrushControlTreatsLeftAsZeroDegrees() async throws {
+    let left = RotaryBrushControl.normalizedAngleFromLeft(dx: -1, dy: 0)
+    let down = RotaryBrushControl.normalizedAngleFromLeft(dx: 0, dy: 1)
+
+    #expect(abs(left) < 0.000_1)
+    #expect(abs(down - (.pi / 2)) < 0.000_1)
 }

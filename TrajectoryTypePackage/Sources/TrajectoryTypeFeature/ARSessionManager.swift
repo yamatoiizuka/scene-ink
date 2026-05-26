@@ -11,6 +11,7 @@ public final class ARSessionManager: NSObject {
     public private(set) var latestBrushSection: CGImage?
     public private(set) var trackingDescription = "AR session is not running."
     public private(set) var isRunning = false
+    public var brushAngleRadians: CGFloat = 0
     private let frameCapture = FrameCapture()
 
     public override init() {
@@ -64,7 +65,10 @@ extension ARSessionManager: ARSessionDelegate {
                 return
             }
 
-            let brushSection = self.frameCapture.makeBrushSection(from: frame.capturedImage)
+            let brushSection = self.frameCapture.makeBrushSection(
+                from: frame.capturedImage,
+                angleRadians: self.brushAngleRadians
+            )
             self.update(with: pose, brushSection: brushSection, trackingDescription: trackingDescription)
         }
     }

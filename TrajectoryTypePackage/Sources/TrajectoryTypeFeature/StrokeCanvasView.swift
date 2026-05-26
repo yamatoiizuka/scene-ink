@@ -98,12 +98,14 @@ public final class StrokeCompositorUIView: UIView {
     }
 
     private func averageCrossVector(from previous: ScreenStrokeSample, to current: ScreenStrokeSample) -> CGVector {
-        let dx = cos(previous.rollRadians) + cos(current.rollRadians)
-        let dy = sin(previous.rollRadians) + sin(current.rollRadians)
+        let previousVector = FrameCapture.crossVector(forBrushAngle: previous.brushAngleRadians)
+        let currentVector = FrameCapture.crossVector(forBrushAngle: current.brushAngleRadians)
+        let dx = previousVector.dx + currentVector.dx
+        let dy = previousVector.dy + currentVector.dy
         let length = sqrt((dx * dx) + (dy * dy))
 
         guard length > 0.001 else {
-            return CGVector(dx: cos(current.rollRadians), dy: sin(current.rollRadians))
+            return currentVector
         }
 
         return CGVector(dx: dx / length, dy: dy / length)
@@ -112,7 +114,7 @@ public final class StrokeCompositorUIView: UIView {
     private func makeRibbonPath(in size: CGSize) -> UIBezierPath {
         let edges = samples.map { sample in
             let point = sample.point(in: size)
-            let direction = CGVector(dx: cos(sample.rollRadians), dy: sin(sample.rollRadians))
+            let direction = FrameCapture.crossVector(forBrushAngle: sample.brushAngleRadians)
             let halfWidth = sample.width / 2
             let offset = CGVector(dx: direction.dx * halfWidth, dy: direction.dy * halfWidth)
 
@@ -160,7 +162,7 @@ public final class StrokeCompositorUIView: UIView {
 
     private func edgePoints(for sample: ScreenStrokeSample) -> (left: CGPoint, right: CGPoint) {
         let point = sample.point(in: bounds.size)
-        let direction = CGVector(dx: cos(sample.rollRadians), dy: sin(sample.rollRadians))
+        let direction = FrameCapture.crossVector(forBrushAngle: sample.brushAngleRadians)
         let halfWidth = sample.width / 2
         let offset = CGVector(dx: direction.dx * halfWidth, dy: direction.dy * halfWidth)
 
