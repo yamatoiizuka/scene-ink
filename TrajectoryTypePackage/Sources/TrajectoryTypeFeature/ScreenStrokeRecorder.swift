@@ -189,7 +189,7 @@ public final class ScreenStrokeRecorder {
     }
 
     nonisolated public static func screenTranslation(from relativeTranslation: SIMD3<Float>) -> SIMD2<Float> {
-        -SIMD2(relativeTranslation.y, relativeTranslation.x)
+        SIMD2(relativeTranslation.y, relativeTranslation.x)
     }
 
     nonisolated public static func angularDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {

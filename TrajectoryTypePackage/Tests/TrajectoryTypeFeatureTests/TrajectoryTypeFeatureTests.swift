@@ -43,8 +43,8 @@ import Testing
     #expect(recorder.activeSamples.count == 2)
     #expect(abs(recorder.activeSamples[0].normalizedPoint.x - 0.5) < 0.000_1)
     #expect(abs(recorder.activeSamples[0].normalizedPoint.y - 0.5) < 0.000_1)
-    #expect(recorder.activeSamples[1].normalizedPoint.x < recorder.activeSamples[0].normalizedPoint.x)
-    #expect(recorder.activeSamples[1].normalizedPoint.y < recorder.activeSamples[0].normalizedPoint.y)
+    #expect(recorder.activeSamples[1].normalizedPoint.x > recorder.activeSamples[0].normalizedPoint.x)
+    #expect(recorder.activeSamples[1].normalizedPoint.y > recorder.activeSamples[0].normalizedPoint.y)
 }
 
 @Test func screenTranslationRotatesCameraAxesIntoPortraitScreenAxes() async throws {
@@ -52,8 +52,8 @@ import Testing
     let cameraLocalY = ScreenStrokeRecorder.screenTranslation(from: SIMD3<Float>(0, 1, 0))
 
     #expect(abs(cameraLocalX.x) < 0.000_1)
-    #expect(cameraLocalX.y < 0)
-    #expect(cameraLocalY.x < 0)
+    #expect(cameraLocalX.y > 0)
+    #expect(cameraLocalY.x > 0)
     #expect(abs(cameraLocalY.y) < 0.000_1)
 }
 
