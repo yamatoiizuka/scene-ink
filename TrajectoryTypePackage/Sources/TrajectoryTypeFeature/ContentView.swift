@@ -29,7 +29,7 @@ public struct ContentView: View {
                 }
 
                 strokeRecorder.record(pose: pose, in: proxy.size) {
-                    sessionManager.makeCurrentBrushSection()
+                    sessionManager.latestBrushSection
                 }
             }
         }

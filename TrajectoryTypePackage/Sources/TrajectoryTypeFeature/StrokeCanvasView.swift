@@ -79,13 +79,12 @@ public final class StrokeCompositorUIView: UIView {
 
         let destination = CGRect(x: -0.5, y: -0.5, width: 1, height: 1)
 
-        if let brushSectionImage = current.brushSectionImage ?? previous.brushSectionImage {
-            UIImage(cgImage: brushSectionImage).draw(in: destination, blendMode: .normal, alpha: 0.98)
-        } else {
-            UIColor.white.withAlphaComponent(0.88).setFill()
-            UIRectFill(destination)
+        guard let brushSectionImage = current.brushSectionImage ?? previous.brushSectionImage else {
+            context.restoreGState()
+            return
         }
 
+        UIImage(cgImage: brushSectionImage).draw(in: destination, blendMode: .normal, alpha: 0.98)
         context.restoreGState()
     }
 

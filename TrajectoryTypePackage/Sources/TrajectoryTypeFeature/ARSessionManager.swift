@@ -8,6 +8,7 @@ import Observation
 public final class ARSessionManager: NSObject {
     public let session: ARSession
     public private(set) var latestPose: CameraPose?
+    public private(set) var latestBrushSection: CGImage?
     public private(set) var trackingDescription = "AR session is not running."
     public private(set) var isRunning = false
     private let frameCapture = FrameCapture()
@@ -41,16 +42,9 @@ public final class ARSessionManager: NSObject {
         trackingDescription = "AR session paused."
     }
 
-    public func makeCurrentBrushSection() -> CGImage? {
-        guard let frame = session.currentFrame else {
-            return nil
-        }
-
-        return frameCapture.makeBrushSection(from: frame.capturedImage)
-    }
-
-    private func update(with pose: CameraPose, trackingDescription: String) {
+    private func update(with pose: CameraPose, brushSection: CGImage?, trackingDescription: String) {
         latestPose = pose
+        latestBrushSection = brushSection
         self.trackingDescription = trackingDescription
     }
 
@@ -66,7 +60,12 @@ extension ARSessionManager: ARSessionDelegate {
         let trackingDescription = describeTrackingState(frame.camera.trackingState)
 
         Task { @MainActor [weak self] in
-            self?.update(with: pose, trackingDescription: trackingDescription)
+            guard let self else {
+                return
+            }
+
+            let brushSection = self.frameCapture.makeBrushSection(from: frame.capturedImage)
+            self.update(with: pose, brushSection: brushSection, trackingDescription: trackingDescription)
         }
     }
 

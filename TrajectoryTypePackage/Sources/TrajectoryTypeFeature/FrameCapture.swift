@@ -23,15 +23,12 @@ public final class FrameCapture {
             height: sourceExtent.height
         )
 
+        let scaleX = outputSize.width / cropRect.width
+        let scaleY = outputSize.height / cropRect.height
         let cropped = sourceImage
             .cropped(to: cropRect)
-            .transformed(
-                by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY)
-                    .scaledBy(
-                        x: outputSize.width / cropRect.width,
-                        y: outputSize.height / cropRect.height
-                    )
-            )
+            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
 
         return context.createCGImage(cropped, from: CGRect(origin: .zero, size: outputSize))
     }
