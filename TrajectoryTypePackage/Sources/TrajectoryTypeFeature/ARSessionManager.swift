@@ -12,6 +12,8 @@ public final class ARSessionManager: NSObject {
     public private(set) var trackingDescription = "AR session is not running."
     public private(set) var isRunning = false
     public var brushAngleRadians: CGFloat = 0
+    public private(set) var normalizedBrushSamplePoint = CGPoint(x: 0.5, y: 0.5)
+    public private(set) var brushPreviewSize: CGSize?
     private let frameCapture = FrameCapture()
 
     public override init() {
@@ -43,6 +45,20 @@ public final class ARSessionManager: NSObject {
         trackingDescription = "AR session paused."
     }
 
+    public func setBrushSamplePoint(_ point: CGPoint, in previewSize: CGSize) {
+        guard previewSize.width > 0, previewSize.height > 0 else {
+            normalizedBrushSamplePoint = CGPoint(x: 0.5, y: 0.5)
+            brushPreviewSize = nil
+            return
+        }
+
+        normalizedBrushSamplePoint = CGPoint(
+            x: point.x / previewSize.width,
+            y: point.y / previewSize.height
+        )
+        brushPreviewSize = previewSize
+    }
+
     private func update(with pose: CameraPose, brushSection: CGImage?, trackingDescription: String) {
         latestPose = pose
         latestBrushSection = brushSection
@@ -67,7 +83,9 @@ extension ARSessionManager: ARSessionDelegate {
 
             let brushSection = self.frameCapture.makeBrushSection(
                 from: frame.capturedImage,
-                angleRadians: self.brushAngleRadians
+                angleRadians: self.brushAngleRadians,
+                normalizedPreviewPoint: self.normalizedBrushSamplePoint,
+                previewSize: self.brushPreviewSize
             )
             self.update(with: pose, brushSection: brushSection, trackingDescription: trackingDescription)
         }

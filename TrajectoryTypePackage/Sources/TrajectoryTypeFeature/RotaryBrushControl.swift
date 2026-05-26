@@ -5,8 +5,8 @@ public struct RotaryBrushControl: View {
     @Binding private var angleRadians: CGFloat
 
     private let widthRange: ClosedRange<Int>
-    private let controlSize: CGFloat = 154
-    private let thumbSize: CGFloat = 24
+    private let controlSize: CGFloat = 231
+    private let thumbSize: CGFloat = 36
 
     public init(
         widthPixels: Binding<Int>,

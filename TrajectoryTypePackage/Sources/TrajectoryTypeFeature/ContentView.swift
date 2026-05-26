@@ -28,6 +28,7 @@ public struct ContentView: View {
                         strokeRecorder.end()
                     } else {
                         sessionManager.brushAngleRadians = brushAngleRadians
+                        sessionManager.setBrushSamplePoint(point, in: size)
                         strokeRecorder.begin(at: point, in: size, pose: sessionManager.latestPose)
                     }
                 }
