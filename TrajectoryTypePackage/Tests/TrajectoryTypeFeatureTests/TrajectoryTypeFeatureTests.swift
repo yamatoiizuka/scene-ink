@@ -30,5 +30,15 @@ import Testing
     #expect(abs(recorder.samples[0].normalizedPoint.x - 0.5) < 0.000_1)
     #expect(abs(recorder.samples[0].normalizedPoint.y - 0.5) < 0.000_1)
     #expect(recorder.samples[1].normalizedPoint.x > recorder.samples[0].normalizedPoint.x)
-    #expect(recorder.samples[1].normalizedPoint.y < recorder.samples[0].normalizedPoint.y)
+    #expect(recorder.samples[1].normalizedPoint.y > recorder.samples[0].normalizedPoint.y)
+}
+
+@Test func screenTranslationRotatesCameraAxesIntoPortraitScreenAxes() async throws {
+    let cameraLocalX = ScreenStrokeRecorder.screenTranslation(from: SIMD3<Float>(1, 0, 0))
+    let cameraLocalY = ScreenStrokeRecorder.screenTranslation(from: SIMD3<Float>(0, 1, 0))
+
+    #expect(abs(cameraLocalX.x) < 0.000_1)
+    #expect(cameraLocalX.y > 0)
+    #expect(cameraLocalY.x > 0)
+    #expect(abs(cameraLocalY.y) < 0.000_1)
 }

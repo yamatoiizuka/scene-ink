@@ -79,10 +79,11 @@ public final class ScreenStrokeRecorder {
     ) -> CGPoint {
         let relative = Self.relativeTranslation(from: anchorTransform, to: transform)
         let pointsPerMeter = min(viewportSize.width, viewportSize.height) * pointsPerScreen
+        let screenTranslation = Self.screenTranslation(from: relative) * Float(pointsPerMeter)
 
         return CGPoint(
-            x: (viewportSize.width / 2) + (CGFloat(relative.x) * pointsPerMeter),
-            y: (viewportSize.height / 2) - (CGFloat(relative.y) * pointsPerMeter)
+            x: (viewportSize.width / 2) + CGFloat(screenTranslation.x),
+            y: (viewportSize.height / 2) + CGFloat(screenTranslation.y)
         )
     }
 
@@ -129,7 +130,7 @@ public final class ScreenStrokeRecorder {
         lastRollRadians = rollRadians
     }
 
-    public static func relativeTranslation(
+    nonisolated public static func relativeTranslation(
         from anchorTransform: simd_float4x4,
         to transform: simd_float4x4
     ) -> SIMD3<Float> {
@@ -138,7 +139,11 @@ public final class ScreenStrokeRecorder {
         return SIMD3(relative.x, relative.y, relative.z)
     }
 
-    public static func relativeRoll(
+    nonisolated public static func screenTranslation(from relativeTranslation: SIMD3<Float>) -> SIMD2<Float> {
+        SIMD2(relativeTranslation.y, relativeTranslation.x)
+    }
+
+    nonisolated public static func relativeRoll(
         from anchorTransform: simd_float4x4,
         to transform: simd_float4x4
     ) -> Float {
