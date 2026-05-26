@@ -8,14 +8,31 @@ public final class FrameCapture {
 
     public init() {}
 
-    public func makeSnapshot(
+    public func makeBrushSection(
         from pixelBuffer: CVPixelBuffer,
-        maxPixelDimension: CGFloat = 480
+        outputSize: CGSize = CGSize(width: 10, height: 220),
+        sourceWidthRatio: CGFloat = 0.035
     ) -> CGImage? {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(.right)
-        let scale = min(1, maxPixelDimension / max(sourceImage.extent.width, sourceImage.extent.height))
-        let outputImage = sourceImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let sourceExtent = sourceImage.extent
+        let sectionWidth = max(8, sourceExtent.width * sourceWidthRatio)
+        let cropRect = CGRect(
+            x: sourceExtent.midX - (sectionWidth / 2),
+            y: sourceExtent.minY,
+            width: sectionWidth,
+            height: sourceExtent.height
+        )
 
-        return context.createCGImage(outputImage, from: outputImage.extent)
+        let cropped = sourceImage
+            .cropped(to: cropRect)
+            .transformed(
+                by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY)
+                    .scaledBy(
+                        x: outputSize.width / cropRect.width,
+                        y: outputSize.height / cropRect.height
+                    )
+            )
+
+        return context.createCGImage(cropped, from: CGRect(origin: .zero, size: outputSize))
     }
 }

@@ -35,42 +35,52 @@ public final class StrokeCompositorUIView: UIView {
             return
         }
 
-        let ribbonPath = makeRibbonPath(in: bounds.size)
-        context.saveGState()
-        context.addPath(ribbonPath.cgPath)
-        context.clip()
-
-        for index in samples.indices {
-            drawSample(samples[index], at: index, in: context)
+        for index in samples.indices.dropFirst() {
+            drawSegment(from: samples[index - 1], to: samples[index], in: context)
         }
 
-        context.restoreGState()
-        strokeRibbonOutline(ribbonPath, in: context)
+        strokeRibbonOutline(makeRibbonPath(in: bounds.size), in: context)
     }
 
-    private func drawSample(_ sample: ScreenStrokeSample, at index: Int, in context: CGContext) {
-        let point = sample.point(in: bounds.size)
-        let tangent = tangentVector(at: index)
-        let cross = CGVector(dx: cos(sample.rollRadians), dy: sin(sample.rollRadians))
-        let patchLength = max(sample.width * 2.6, segmentLength(at: index) * 1.35)
-        let patchWidth = sample.width * 1.55
+    private func drawSegment(
+        from previous: ScreenStrokeSample,
+        to current: ScreenStrokeSample,
+        in context: CGContext
+    ) {
+        let start = previous.point(in: bounds.size)
+        let end = current.point(in: bounds.size)
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = sqrt((dx * dx) + (dy * dy))
+
+        guard length > 0.001 else {
+            return
+        }
+
+        let tangent = CGVector(dx: dx / length, dy: dy / length)
+        let cross = averageCrossVector(from: previous, to: current)
+        let width = (previous.width + current.width) / 2
+        let center = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        let segmentPath = makeSegmentPath(from: previous, to: current)
 
         context.saveGState()
+        context.addPath(segmentPath.cgPath)
+        context.clip()
         context.concatenate(
             CGAffineTransform(
-                a: tangent.dx * patchLength,
-                b: tangent.dy * patchLength,
-                c: cross.dx * patchWidth,
-                d: cross.dy * patchWidth,
-                tx: point.x,
-                ty: point.y
+                a: tangent.dx * length,
+                b: tangent.dy * length,
+                c: cross.dx * width,
+                d: cross.dy * width,
+                tx: center.x,
+                ty: center.y
             )
         )
 
         let destination = CGRect(x: -0.5, y: -0.5, width: 1, height: 1)
 
-        if let capturedImage = sample.capturedImage {
-            UIImage(cgImage: capturedImage).draw(in: destination, blendMode: .normal, alpha: 0.96)
+        if let brushSectionImage = current.brushSectionImage ?? previous.brushSectionImage {
+            UIImage(cgImage: brushSectionImage).draw(in: destination, blendMode: .normal, alpha: 0.98)
         } else {
             UIColor.white.withAlphaComponent(0.88).setFill()
             UIRectFill(destination)
@@ -88,35 +98,16 @@ public final class StrokeCompositorUIView: UIView {
         context.restoreGState()
     }
 
-    private func tangentVector(at index: Int) -> CGVector {
-        let current = samples[index].point(in: bounds.size)
-        let neighbor: CGPoint
+    private func averageCrossVector(from previous: ScreenStrokeSample, to current: ScreenStrokeSample) -> CGVector {
+        let dx = cos(previous.rollRadians) + cos(current.rollRadians)
+        let dy = sin(previous.rollRadians) + sin(current.rollRadians)
+        let length = sqrt((dx * dx) + (dy * dy))
 
-        if index < samples.index(before: samples.endIndex) {
-            neighbor = samples[index + 1].point(in: bounds.size)
-        } else {
-            neighbor = samples[index - 1].point(in: bounds.size)
+        guard length > 0.001 else {
+            return CGVector(dx: cos(current.rollRadians), dy: sin(current.rollRadians))
         }
 
-        let dx = neighbor.x - current.x
-        let dy = neighbor.y - current.y
-        let length = max(sqrt((dx * dx) + (dy * dy)), 0.001)
         return CGVector(dx: dx / length, dy: dy / length)
-    }
-
-    private func segmentLength(at index: Int) -> CGFloat {
-        let current = samples[index].point(in: bounds.size)
-        let neighbor: CGPoint
-
-        if index < samples.index(before: samples.endIndex) {
-            neighbor = samples[index + 1].point(in: bounds.size)
-        } else {
-            neighbor = samples[index - 1].point(in: bounds.size)
-        }
-
-        let dx = neighbor.x - current.x
-        let dy = neighbor.y - current.y
-        return sqrt((dx * dx) + (dy * dy))
     }
 
     private func makeRibbonPath(in size: CGSize) -> UIBezierPath {
@@ -149,5 +140,34 @@ public final class StrokeCompositorUIView: UIView {
 
         path.close()
         return path
+    }
+
+    private func makeSegmentPath(
+        from previous: ScreenStrokeSample,
+        to current: ScreenStrokeSample
+    ) -> UIBezierPath {
+        let previousEdges = edgePoints(for: previous)
+        let currentEdges = edgePoints(for: current)
+        let path = UIBezierPath()
+
+        path.move(to: previousEdges.left)
+        path.addLine(to: currentEdges.left)
+        path.addLine(to: currentEdges.right)
+        path.addLine(to: previousEdges.right)
+        path.close()
+
+        return path
+    }
+
+    private func edgePoints(for sample: ScreenStrokeSample) -> (left: CGPoint, right: CGPoint) {
+        let point = sample.point(in: bounds.size)
+        let direction = CGVector(dx: cos(sample.rollRadians), dy: sin(sample.rollRadians))
+        let halfWidth = sample.width / 2
+        let offset = CGVector(dx: direction.dx * halfWidth, dy: direction.dy * halfWidth)
+
+        return (
+            left: CGPoint(x: point.x + offset.dx, y: point.y + offset.dy),
+            right: CGPoint(x: point.x - offset.dx, y: point.y - offset.dy)
+        )
     }
 }

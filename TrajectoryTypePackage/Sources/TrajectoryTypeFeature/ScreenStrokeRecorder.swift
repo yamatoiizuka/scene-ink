@@ -44,7 +44,7 @@ public final class ScreenStrokeRecorder {
     public func record(
         pose: CameraPose,
         in viewportSize: CGSize,
-        capturedImageProvider: () -> CGImage? = { nil }
+        brushSectionProvider: () -> CGImage? = { nil }
     ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
             return
@@ -67,7 +67,7 @@ public final class ScreenStrokeRecorder {
                 rollRadians: rollRadians,
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
-                capturedImage: capturedImageProvider()
+                brushSectionImage: brushSectionProvider()
             )
         }
     }
@@ -105,7 +105,7 @@ public final class ScreenStrokeRecorder {
         rollRadians: CGFloat,
         timestamp: TimeInterval,
         viewportSize: CGSize,
-        capturedImage: CGImage?
+        brushSectionImage: CGImage?
     ) {
         let normalizedPoint = CGPoint(
             x: point.x / viewportSize.width,
@@ -118,7 +118,7 @@ public final class ScreenStrokeRecorder {
                 rollRadians: rollRadians,
                 width: sampleWidth,
                 timestamp: timestamp,
-                capturedImage: capturedImage
+                brushSectionImage: brushSectionImage
             )
         )
 

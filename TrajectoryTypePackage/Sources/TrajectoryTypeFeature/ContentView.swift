@@ -29,7 +29,7 @@ public struct ContentView: View {
                 }
 
                 strokeRecorder.record(pose: pose, in: proxy.size) {
-                    sessionManager.makeCurrentFrameSnapshot()
+                    sessionManager.makeCurrentBrushSection()
                 }
             }
         }
@@ -93,7 +93,7 @@ public struct ContentView: View {
             }
 
             Text("stroke samples: \(strokeRecorder.samples.count)")
-            Text("image samples: \(strokeRecorder.samples.filter { $0.capturedImage != nil }.count)")
+            Text("section samples: \(strokeRecorder.samples.filter { $0.brushSectionImage != nil }.count)")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)

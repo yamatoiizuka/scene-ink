@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 @preconcurrency import ARKit
@@ -40,12 +41,12 @@ public final class ARSessionManager: NSObject {
         trackingDescription = "AR session paused."
     }
 
-    public func makeCurrentFrameSnapshot() -> CGImage? {
+    public func makeCurrentBrushSection() -> CGImage? {
         guard let frame = session.currentFrame else {
             return nil
         }
 
-        return frameCapture.makeSnapshot(from: frame.capturedImage)
+        return frameCapture.makeBrushSection(from: frame.capturedImage)
     }
 
     private func update(with pose: CameraPose, trackingDescription: String) {
