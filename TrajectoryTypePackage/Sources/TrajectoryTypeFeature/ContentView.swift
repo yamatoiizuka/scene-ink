@@ -4,14 +4,32 @@ import SwiftUI
 @MainActor
 public struct ContentView: View {
     @State private var sessionManager = ARSessionManager()
+    @State private var strokeRecorder = ScreenStrokeRecorder()
 
     public var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            ARViewContainer(sessionManager: sessionManager)
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                ARViewContainer(sessionManager: sessionManager)
+                    .ignoresSafeArea()
 
-            debugOverlay
-                .padding()
+                StrokeCanvasView(samples: strokeRecorder.samples)
+                    .ignoresSafeArea()
+
+                controls
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 28)
+
+                debugOverlay
+                    .padding(.leading)
+                    .padding(.bottom, 104)
+            }
+            .onChange(of: sessionManager.latestPose?.timestamp) {
+                guard let pose = sessionManager.latestPose else {
+                    return
+                }
+
+                strokeRecorder.record(pose: pose, in: proxy.size)
+            }
         }
         .onAppear {
             sessionManager.start()
@@ -22,6 +40,40 @@ public struct ContentView: View {
     }
 
     public init() {}
+
+    private var controls: some View {
+        HStack(spacing: 12) {
+            Button {
+                strokeRecorder.clear()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 48, height: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black.opacity(0.72))
+            .disabled(strokeRecorder.samples.isEmpty)
+            .accessibilityLabel("Clear stroke")
+
+            Button {
+                if strokeRecorder.isRecording {
+                    strokeRecorder.end()
+                } else {
+                    strokeRecorder.begin()
+                }
+            } label: {
+                Label(
+                    strokeRecorder.isRecording ? "End Stroke" : "Start Stroke",
+                    systemImage: strokeRecorder.isRecording ? "stop.fill" : "record.circle"
+                )
+                .font(.system(.headline, design: .rounded))
+                .frame(minWidth: 156, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(strokeRecorder.isRecording ? .red : .white)
+            .foregroundStyle(strokeRecorder.isRecording ? .white : .black)
+        }
+    }
 
     private var debugOverlay: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -37,6 +89,8 @@ public struct ContentView: View {
                 Text("rot: waiting")
                 Text("time: waiting")
             }
+
+            Text("stroke samples: \(strokeRecorder.samples.count)")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)

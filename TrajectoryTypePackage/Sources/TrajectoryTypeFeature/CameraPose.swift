@@ -2,11 +2,13 @@ import Foundation
 import simd
 
 public struct CameraPose: Sendable {
+    public let transform: simd_float4x4
     public let position: SIMD3<Float>
     public let rotationRadians: SIMD3<Float>
     public let timestamp: TimeInterval
 
     public init(transform: simd_float4x4, timestamp: TimeInterval) {
+        self.transform = transform
         self.position = Self.position(from: transform)
         self.rotationRadians = Self.eulerAngles(from: transform)
         self.timestamp = timestamp
