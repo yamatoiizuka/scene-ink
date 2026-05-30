@@ -14,23 +14,20 @@ const textureCanvas = document.createElement("canvas");
 const textureContext = textureCanvas.getContext("2d", { alpha: true });
 const maskCanvas = document.createElement("canvas");
 const maskContext = maskCanvas.getContext("2d", { alpha: true });
-const segmentTextureCanvas = document.createElement("canvas");
-const segmentTextureContext = segmentTextureCanvas.getContext("2d", { alpha: true });
+const strokeTextureCanvas = document.createElement("canvas");
+const strokeTextureContext = strokeTextureCanvas.getContext("2d", { alpha: true });
 
 const sectionResolution = 128;
 const sectionSampleWidth = 2;
-const segmentTextureColumns = 6;
-const skeletonSampleSpacing = 1.7;
-const bezierTension = 0.82;
+const maximumRibbonSegmentLength = 8;
+const tangentSmoothing = 0.58;
+const textureColumnBleed = 0.18;
 const ribbonOverdraw = 0.75;
 const minimumPointDistance = 4.5;
 const minimumAngleDelta = Math.PI / 90;
 const temporalJoinRadius = 5;
 const temporalJoinColumnStep = 3;
 const temporalJoinMaxColumns = 20;
-
-segmentTextureCanvas.width = segmentTextureColumns;
-segmentTextureCanvas.height = sectionResolution;
 
 let strokes = [];
 let activeSamples = [];
@@ -375,13 +372,13 @@ function drawStrokeTo(samples, destinationContext) {
     return;
   }
 
-  const skeleton = buildBezierSkeleton(samples);
-  const renderSamples = sampleBezierSkeleton(skeleton);
+  const renderSamples = buildRibbonSamples(samples);
   if (renderSamples.length < 2) {
     return;
   }
 
-  drawTexturedStroke(renderSamples);
+  const strokeTexture = buildStrokeTexture(renderSamples);
+  drawTexturedStroke(renderSamples, strokeTexture);
   maskTexturedStroke(renderSamples);
   destinationContext.save();
   destinationContext.setTransform(1, 0, 0, 1, 0, 0);
@@ -389,7 +386,7 @@ function drawStrokeTo(samples, destinationContext) {
   destinationContext.restore();
 }
 
-function drawTexturedStroke(renderSamples) {
+function drawTexturedStroke(renderSamples, strokeTexture) {
   clearWorkCanvas(textureContext);
   textureContext.imageSmoothingEnabled = true;
   textureContext.imageSmoothingQuality = "high";
@@ -401,10 +398,11 @@ function drawTexturedStroke(renderSamples) {
       continue;
     }
 
-    const texture = buildSegmentTexture(previous, current);
     drawRibbonSegment(
       textureContext,
-      texture,
+      strokeTexture,
+      index - 1,
+      index,
       ribbonFrame(previous),
       ribbonFrame(current)
     );
@@ -483,50 +481,58 @@ function clearWorkCanvas(targetContext) {
   targetContext.restore();
 }
 
-function buildSegmentTexture(previous, current) {
-  segmentTextureContext.setTransform(1, 0, 0, 1, 0, 0);
-  segmentTextureContext.clearRect(0, 0, segmentTextureCanvas.width, segmentTextureCanvas.height);
-  segmentTextureContext.imageSmoothingEnabled = true;
-  segmentTextureContext.imageSmoothingQuality = "high";
+function buildStrokeTexture(renderSamples) {
+  strokeTextureCanvas.width = Math.max(2, renderSamples.length);
+  strokeTextureCanvas.height = sectionResolution;
+  strokeTextureContext.setTransform(1, 0, 0, 1, 0, 0);
+  strokeTextureContext.clearRect(0, 0, strokeTextureCanvas.width, strokeTextureCanvas.height);
+  strokeTextureContext.imageSmoothingEnabled = true;
+  strokeTextureContext.imageSmoothingQuality = "high";
 
-  for (let column = 0; column < segmentTextureCanvas.width; column += 1) {
-    const t = segmentTextureCanvas.width === 1 ? 0 : column / (segmentTextureCanvas.width - 1);
-    drawResolvedSectionColumn(segmentTextureContext, previous, column, 1);
-    drawResolvedSectionColumn(segmentTextureContext, current, column, t);
+  for (let column = 0; column < renderSamples.length; column += 1) {
+    const previous = renderSamples[Math.max(0, column - 1)];
+    const current = renderSamples[column];
+    const next = renderSamples[Math.min(renderSamples.length - 1, column + 1)];
+    drawResolvedTextureColumn(strokeTextureContext, current, column, 1);
+    drawResolvedTextureColumn(strokeTextureContext, previous, column, textureColumnBleed);
+    drawResolvedTextureColumn(strokeTextureContext, next, column, textureColumnBleed);
   }
 
-  segmentTextureContext.globalAlpha = 1;
-  return segmentTextureCanvas;
+  strokeTextureContext.globalAlpha = 1;
+  return strokeTextureCanvas;
 }
 
-function drawResolvedSectionColumn(targetContext, sample, column, alpha) {
-  if (alpha <= 0) {
+function drawResolvedTextureColumn(targetContext, sample, column, alpha) {
+  if (!sample || alpha <= 0) {
     return;
   }
 
-  targetContext.save();
-  if (sample.previousSection) {
-    targetContext.globalAlpha = alpha;
-    drawSectionColumn(targetContext, sample.previousSection, column);
+  if (sample.previousSection && sample.currentSection) {
+    drawTextureColumn(targetContext, sample.previousSection, column, sample.sectionT, alpha);
+    drawTextureColumn(targetContext, sample.currentSection, column, sample.sectionT, alpha * sample.sectionT);
+    return;
   }
-  if (sample.currentSection) {
-    targetContext.globalAlpha = alpha * Math.min(1, sample.sectionT);
-    drawSectionColumn(targetContext, sample.currentSection, column);
-  }
-  targetContext.restore();
+
+  drawTextureColumn(targetContext, sample.section, column, sample.sourceT ?? 0.5, alpha);
 }
 
-function drawSectionColumn(targetContext, section, column) {
+function drawTextureColumn(targetContext, section, column, sourceT, alpha) {
+  if (!section || alpha <= 0) {
+    return;
+  }
+
+  const sourceX = Math.min(section.width - 1, Math.max(0, sourceT * (section.width - 1)));
+  targetContext.globalAlpha = alpha;
   targetContext.drawImage(
     section,
+    sourceX,
     0,
-    0,
-    section.width,
+    1,
     section.height,
     column,
     0,
     1,
-    segmentTextureCanvas.height
+    strokeTextureCanvas.height
   );
 }
 
@@ -547,37 +553,35 @@ function ribbonFrame(sample) {
   };
 }
 
-function drawRibbonSegment(targetContext, texture, previousFrame, currentFrame) {
-  const sourceTopLeft = { x: 0, y: 0 };
-  const sourceTopRight = { x: texture.width, y: 0 };
-  const sourceBottomLeft = { x: 0, y: texture.height };
-  const sourceBottomRight = { x: texture.width, y: texture.height };
-
-  drawTexturedTriangle(
+function drawRibbonSegment(targetContext, texture, previousIndex, currentIndex, previousFrame, currentFrame) {
+  drawTextureTriangle(
     targetContext,
     texture,
-    [sourceTopLeft, sourceTopRight, sourceBottomLeft],
-    [previousFrame.top, currentFrame.top, previousFrame.bottom]
+    previousFrame.top,
+    currentFrame.top,
+    previousFrame.bottom,
+    firstRibbonTriangleMatrix(texture, previousIndex, currentIndex, previousFrame, currentFrame)
   );
-  drawTexturedTriangle(
+  drawTextureTriangle(
     targetContext,
     texture,
-    [sourceBottomLeft, sourceTopRight, sourceBottomRight],
-    [previousFrame.bottom, currentFrame.top, currentFrame.bottom]
+    previousFrame.bottom,
+    currentFrame.top,
+    currentFrame.bottom,
+    secondRibbonTriangleMatrix(texture, previousIndex, currentIndex, previousFrame, currentFrame)
   );
 }
 
-function drawTexturedTriangle(targetContext, texture, sourceTriangle, destinationTriangle) {
-  const matrix = triangleTransform(sourceTriangle, destinationTriangle);
+function drawTextureTriangle(targetContext, texture, p0, p1, p2, matrix) {
   if (!matrix) {
     return;
   }
 
   targetContext.save();
   targetContext.beginPath();
-  targetContext.moveTo(destinationTriangle[0].x, destinationTriangle[0].y);
-  targetContext.lineTo(destinationTriangle[1].x, destinationTriangle[1].y);
-  targetContext.lineTo(destinationTriangle[2].x, destinationTriangle[2].y);
+  targetContext.moveTo(p0.x, p0.y);
+  targetContext.lineTo(p1.x, p1.y);
+  targetContext.lineTo(p2.x, p2.y);
   targetContext.closePath();
   targetContext.clip();
   targetContext.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
@@ -585,153 +589,136 @@ function drawTexturedTriangle(targetContext, texture, sourceTriangle, destinatio
   targetContext.restore();
 }
 
-function triangleTransform(sourceTriangle, destinationTriangle) {
-  const [source0, source1, source2] = sourceTriangle;
-  const [destination0, destination1, destination2] = destinationTriangle;
-  const denominator = source0.x * (source1.y - source2.y)
-    + source1.x * (source2.y - source0.y)
-    + source2.x * (source0.y - source1.y);
-
-  if (Math.abs(denominator) <= 0.0001) {
+function firstRibbonTriangleMatrix(texture, previousIndex, currentIndex, previousFrame, currentFrame) {
+  const width = currentIndex - previousIndex;
+  const height = texture.height;
+  if (width <= 0 || height <= 0) {
     return null;
   }
 
+  const a = (currentFrame.top.x - previousFrame.top.x) / width;
+  const b = (currentFrame.top.y - previousFrame.top.y) / width;
+  const c = (previousFrame.bottom.x - previousFrame.top.x) / height;
+  const d = (previousFrame.bottom.y - previousFrame.top.y) / height;
+
   return {
-    a: (destination0.x * (source1.y - source2.y)
-      + destination1.x * (source2.y - source0.y)
-      + destination2.x * (source0.y - source1.y)) / denominator,
-    b: (destination0.y * (source1.y - source2.y)
-      + destination1.y * (source2.y - source0.y)
-      + destination2.y * (source0.y - source1.y)) / denominator,
-    c: (destination0.x * (source2.x - source1.x)
-      + destination1.x * (source0.x - source2.x)
-      + destination2.x * (source1.x - source0.x)) / denominator,
-    d: (destination0.y * (source2.x - source1.x)
-      + destination1.y * (source0.x - source2.x)
-      + destination2.y * (source1.x - source0.x)) / denominator,
-    e: (destination0.x * (source1.x * source2.y - source2.x * source1.y)
-      + destination1.x * (source2.x * source0.y - source0.x * source2.y)
-      + destination2.x * (source0.x * source1.y - source1.x * source0.y)) / denominator,
-    f: (destination0.y * (source1.x * source2.y - source2.x * source1.y)
-      + destination1.y * (source2.x * source0.y - source0.x * source2.y)
-      + destination2.y * (source0.x * source1.y - source1.x * source0.y)) / denominator
+    a,
+    b,
+    c,
+    d,
+    e: previousFrame.top.x - a * previousIndex,
+    f: previousFrame.top.y - b * previousIndex
   };
 }
 
-function buildBezierSkeleton(samples) {
-  const nodes = samples.map(sample => ({
-    x: samplePoint(sample).x,
-    y: samplePoint(sample).y,
-    width: sample.width,
-    section: sample.section
-  }));
-  const segments = [];
-
-  for (let index = 0; index < nodes.length - 1; index += 1) {
-    const previous = nodes[Math.max(0, index - 1)];
-    const current = nodes[index];
-    const next = nodes[index + 1];
-    const afterNext = nodes[Math.min(nodes.length - 1, index + 2)];
-    const control1 = {
-      x: current.x + (next.x - previous.x) * bezierTension / 6,
-      y: current.y + (next.y - previous.y) * bezierTension / 6
-    };
-    const control2 = {
-      x: next.x - (afterNext.x - current.x) * bezierTension / 6,
-      y: next.y - (afterNext.y - current.y) * bezierTension / 6
-    };
-
-    segments.push({
-      start: current,
-      control1,
-      control2,
-      end: next,
-      length: estimateCubicLength(current, control1, control2, next)
-    });
+function secondRibbonTriangleMatrix(texture, previousIndex, currentIndex, previousFrame, currentFrame) {
+  const width = currentIndex - previousIndex;
+  const height = texture.height;
+  if (width <= 0 || height <= 0) {
+    return null;
   }
 
-  return segments;
+  const c = (currentFrame.bottom.x - currentFrame.top.x) / height;
+  const d = (currentFrame.bottom.y - currentFrame.top.y) / height;
+  const a = (currentFrame.bottom.x - previousFrame.bottom.x) / width;
+  const b = (currentFrame.bottom.y - previousFrame.bottom.y) / width;
+
+  return {
+    a,
+    b,
+    c,
+    d,
+    e: currentFrame.top.x - a * currentIndex,
+    f: currentFrame.top.y - b * currentIndex
+  };
 }
 
-function sampleBezierSkeleton(segments) {
+function buildRibbonSamples(samples) {
+  const nodes = samples.map(sample => {
+    const point = samplePoint(sample);
+    return {
+      x: point.x,
+      y: point.y,
+      width: sample.width,
+      section: sample.section
+    };
+  });
+
+  smoothRibbonPoints(nodes);
+  assignRibbonTangents(nodes);
+  return splitLongRibbonSegments(nodes);
+}
+
+function smoothRibbonPoints(nodes) {
+  if (nodes.length < 3) {
+    return;
+  }
+
+  for (let index = 1; index < nodes.length - 1; index += 1) {
+    const previous = nodes[index - 1];
+    const current = nodes[index];
+    const next = nodes[index + 1];
+    current.x = interpolate(current.x, (previous.x + next.x) / 2, tangentSmoothing);
+    current.y = interpolate(current.y, (previous.y + next.y) / 2, tangentSmoothing);
+  }
+}
+
+function assignRibbonTangents(nodes) {
+  let fallback = { x: 1, y: 0 };
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const previous = nodes[Math.max(0, index - 1)];
+    const next = nodes[Math.min(nodes.length - 1, index + 1)];
+    const tangent = normalizedVector(previous, next);
+    if (distance(previous, next) > 0.001) {
+      fallback = tangent;
+    }
+    nodes[index].tangent = fallback;
+  }
+}
+
+function splitLongRibbonSegments(nodes) {
   const renderSamples = [];
-  let previousTangent = { x: 1, y: 0 };
 
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    const steps = Math.max(2, Math.ceil(segment.length / skeletonSampleSpacing));
-    const startStep = index === 0 ? 0 : 1;
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    const start = nodes[index];
+    const end = nodes[index + 1];
+    const steps = Math.max(1, Math.ceil(distance(start, end) / maximumRibbonSegmentLength));
+    if (index === 0) {
+      renderSamples.push({ ...start });
+    }
 
-    for (let step = startStep; step <= steps; step += 1) {
+    for (let step = 1; step <= steps; step += 1) {
       const t = step / steps;
-      const point = cubicBezierPoint(segment.start, segment.control1, segment.control2, segment.end, t);
-      const tangent = cubicBezierTangent(
-        segment.start,
-        segment.control1,
-        segment.control2,
-        segment.end,
-        t,
-        previousTangent
-      );
-      previousTangent = tangent;
-      renderSamples.push({
-        x: point.x,
-        y: point.y,
-        tangent,
-        width: interpolate(segment.start.width, segment.end.width, t),
-        previousSection: segment.start.section,
-        currentSection: segment.end.section,
-        sectionT: t
-      });
+      renderSamples.push(interpolateRibbonNode(start, end, t));
     }
   }
 
   return renderSamples;
 }
 
-function estimateCubicLength(start, control1, control2, end) {
-  const steps = 12;
-  let length = 0;
-  let previous = start;
-
-  for (let step = 1; step <= steps; step += 1) {
-    const point = cubicBezierPoint(start, control1, control2, end, step / steps);
-    length += distance(previous, point);
-    previous = point;
-  }
-
-  return length;
-}
-
-function cubicBezierPoint(start, control1, control2, end, t) {
-  const inverse = 1 - t;
-  const inverse2 = inverse * inverse;
-  const t2 = t * t;
+function interpolateRibbonNode(start, end, t) {
+  const tangent = normalizeInterpolatedTangent(start.tangent, end.tangent, t);
 
   return {
-    x: inverse2 * inverse * start.x
-      + 3 * inverse2 * t * control1.x
-      + 3 * inverse * t2 * control2.x
-      + t2 * t * end.x,
-    y: inverse2 * inverse * start.y
-      + 3 * inverse2 * t * control1.y
-      + 3 * inverse * t2 * control2.y
-      + t2 * t * end.y
+    x: interpolate(start.x, end.x, t),
+    y: interpolate(start.y, end.y, t),
+    width: interpolate(start.width, end.width, t),
+    tangent,
+    previousSection: start.section,
+    currentSection: end.section,
+    sectionT: t,
+    sourceT: t
   };
 }
 
-function cubicBezierTangent(start, control1, control2, end, t, fallback) {
-  const inverse = 1 - t;
-  const x = 3 * inverse * inverse * (control1.x - start.x)
-    + 6 * inverse * t * (control2.x - control1.x)
-    + 3 * t * t * (end.x - control2.x);
-  const y = 3 * inverse * inverse * (control1.y - start.y)
-    + 6 * inverse * t * (control2.y - control1.y)
-    + 3 * t * t * (end.y - control2.y);
+function normalizeInterpolatedTangent(start, end, t) {
+  const x = interpolate(start?.x || 1, end?.x || 1, t);
+  const y = interpolate(start?.y || 0, end?.y || 0, t);
   const length = Math.hypot(x, y);
 
   if (length <= 0.0001) {
-    return fallback;
+    return start || end || { x: 1, y: 0 };
   }
 
   return {
