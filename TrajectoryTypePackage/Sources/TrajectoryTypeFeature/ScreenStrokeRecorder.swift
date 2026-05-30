@@ -14,7 +14,6 @@ public final class ScreenStrokeRecorder {
 
     private var anchorTransform: simd_float4x4?
     private var startPoint: CGPoint?
-    private var viewportSize: CGSize?
     private var initialBrushAngleRadians: CGFloat = 0
     private var lastRenderedPoint: CGPoint?
     private var lastBrushAngleRadians: CGFloat = 0
@@ -32,7 +31,7 @@ public final class ScreenStrokeRecorder {
             return strokes
         }
 
-        return strokes + [ScreenStroke(samples: transformedActiveSamples())]
+        return strokes + [ScreenStroke(samples: activeSamples)]
     }
 
     public var sampleCount: Int {
@@ -59,7 +58,6 @@ public final class ScreenStrokeRecorder {
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = pose?.transform
         startPoint = point
-        self.viewportSize = viewportSize
         initialBrushAngleRadians = brushAngleRadians
         currentBrushAngleRadians = brushAngleRadians
         currentStrokeRotationRadians = 0
@@ -71,13 +69,12 @@ public final class ScreenStrokeRecorder {
 
     public func end() {
         if !activeSamples.isEmpty {
-            strokes.append(ScreenStroke(samples: transformedActiveSamples()))
+            strokes.append(ScreenStroke(samples: activeSamples))
         }
 
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         startPoint = nil
-        viewportSize = nil
         currentStrokeRotationRadians = 0
         lastRenderedPoint = nil
         isRecording = false
@@ -88,7 +85,6 @@ public final class ScreenStrokeRecorder {
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         startPoint = nil
-        viewportSize = nil
         initialBrushAngleRadians = 0
         currentBrushAngleRadians = 0
         currentStrokeRotationRadians = 0
@@ -132,11 +128,16 @@ public final class ScreenStrokeRecorder {
         currentBrushAngleRadians = brushAngleRadians
         currentStrokeRotationRadians = deviceAngleDelta
 
-        let point = screenPoint(
+        let projectedPoint = screenPoint(
             for: pose.transform,
             anchorTransform: anchorTransform,
             startPoint: startPoint,
             viewportSize: viewportSize
+        )
+        let point = Self.rotate(
+            point: projectedPoint,
+            around: startPoint,
+            angleRadians: deviceAngleDelta
         )
 
         if shouldAppend(point: point, brushWidth: brushWidth, brushAngleRadians: brushAngleRadians) {
@@ -147,35 +148,6 @@ public final class ScreenStrokeRecorder {
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
                 brushSectionImage: brushSectionProvider(brushAngleRadians)
-            )
-        }
-    }
-
-    private func transformedActiveSamples() -> [ScreenStrokeSample] {
-        guard
-            let startPoint,
-            let viewportSize,
-            activeSamples.isEmpty == false,
-            abs(currentStrokeRotationRadians) > 0.000_1
-        else {
-            return activeSamples
-        }
-
-        return activeSamples.map { sample in
-            let point = sample.point(in: viewportSize)
-            let rotatedPoint = Self.rotate(point: point, around: startPoint, angleRadians: currentStrokeRotationRadians)
-            let normalizedPoint = CGPoint(
-                x: rotatedPoint.x / viewportSize.width,
-                y: rotatedPoint.y / viewportSize.height
-            )
-
-            return ScreenStrokeSample(
-                id: sample.id,
-                normalizedPoint: normalizedPoint,
-                brushAngleRadians: sample.brushAngleRadians,
-                width: sample.width,
-                timestamp: sample.timestamp,
-                brushSectionImage: sample.brushSectionImage
             )
         }
     }

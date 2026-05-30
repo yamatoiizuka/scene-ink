@@ -115,7 +115,7 @@ import Testing
 }
 
 @MainActor
-@Test func screenStrokeRecorderRotatesActiveStrokeAroundStartPointForDisplay() async throws {
+@Test func screenStrokeRecorderBakesDeviceRotationIntoNewSamples() async throws {
     let recorder = ScreenStrokeRecorder()
     let viewportSize = CGSize(width: 400, height: 800)
     let startPoint = CGPoint(x: 200, y: 400)
@@ -142,10 +142,54 @@ import Testing
     let rawPoint = recorder.activeSamples[1].point(in: viewportSize)
     let displayPoint = try #require(recorder.displayStrokes.last?.samples[1].point(in: viewportSize))
 
-    #expect(abs(rawPoint.x - 200) < 0.000_1)
-    #expect(abs(rawPoint.y - 460) < 0.000_1)
+    #expect(abs(rawPoint.x - 140) < 0.000_1)
+    #expect(abs(rawPoint.y - 400) < 0.000_1)
     #expect(abs(displayPoint.x - 140) < 0.000_1)
     #expect(abs(displayPoint.y - 400) < 0.000_1)
+}
+
+@MainActor
+@Test func screenStrokeRecorderDoesNotReprojectExistingSamplesAfterRotationChanges() async throws {
+    let recorder = ScreenStrokeRecorder()
+    let viewportSize = CGSize(width: 400, height: 800)
+    let startPoint = CGPoint(x: 200, y: 400)
+    var firstRotation = transform(rotatedAroundZ: .pi / 2)
+    firstRotation.columns.3 = SIMD4<Float>(0.05, 0, 0, 1)
+    var secondRotation = transform(rotatedAroundZ: .pi)
+    secondRotation.columns.3 = SIMD4<Float>(0.05, 0, 0, 1)
+
+    recorder.begin(
+        at: startPoint,
+        in: viewportSize,
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 0),
+        brushAngleRadians: 0
+    )
+    recorder.record(
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
+        in: viewportSize,
+        brushWidth: 12
+    )
+    recorder.record(
+        pose: CameraPose(transform: firstRotation, timestamp: 2),
+        in: viewportSize,
+        brushWidth: 12
+    )
+
+    let bakedPoint = recorder.activeSamples[1].point(in: viewportSize)
+    let bakedAngle = recorder.activeSamples[1].brushAngleRadians
+
+    recorder.record(
+        pose: CameraPose(transform: secondRotation, timestamp: 3),
+        in: viewportSize,
+        brushWidth: 12
+    )
+
+    let retainedPoint = recorder.displayStrokes[0].samples[1].point(in: viewportSize)
+    let retainedAngle = recorder.displayStrokes[0].samples[1].brushAngleRadians
+
+    #expect(abs(retainedPoint.x - bakedPoint.x) < 0.000_1)
+    #expect(abs(retainedPoint.y - bakedPoint.y) < 0.000_1)
+    #expect(abs(retainedAngle - bakedAngle) < 0.000_1)
 }
 
 @Test func brushDragConfigurationUsesDragVectorForWidthAndAngle() async throws {
