@@ -23,6 +23,7 @@ const maximumRibbonSegmentLength = 8;
 const tangentSmoothing = 0.58;
 const textureColumnBleed = 0.18;
 const ribbonOverdraw = 0.75;
+const triangleClipBleed = 0.9;
 const minimumPointDistance = 4.5;
 const minimumAngleDelta = Math.PI / 90;
 const temporalJoinRadius = 5;
@@ -577,16 +578,46 @@ function drawTextureTriangle(targetContext, texture, p0, p1, p2, matrix) {
     return;
   }
 
+  const clip = expandedTriangle(p0, p1, p2, triangleClipBleed);
   targetContext.save();
   targetContext.beginPath();
-  targetContext.moveTo(p0.x, p0.y);
-  targetContext.lineTo(p1.x, p1.y);
-  targetContext.lineTo(p2.x, p2.y);
+  targetContext.moveTo(clip[0].x, clip[0].y);
+  targetContext.lineTo(clip[1].x, clip[1].y);
+  targetContext.lineTo(clip[2].x, clip[2].y);
   targetContext.closePath();
   targetContext.clip();
   targetContext.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
   targetContext.drawImage(texture, 0, 0);
   targetContext.restore();
+}
+
+function expandedTriangle(p0, p1, p2, amount) {
+  const center = {
+    x: (p0.x + p1.x + p2.x) / 3,
+    y: (p0.y + p1.y + p2.y) / 3
+  };
+
+  return [
+    expandPointFromCenter(p0, center, amount),
+    expandPointFromCenter(p1, center, amount),
+    expandPointFromCenter(p2, center, amount)
+  ];
+}
+
+function expandPointFromCenter(point, center, amount) {
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length <= 0.0001) {
+    return point;
+  }
+
+  const scale = (length + amount) / length;
+  return {
+    x: center.x + dx * scale,
+    y: center.y + dy * scale
+  };
 }
 
 function firstRibbonTriangleMatrix(texture, previousIndex, currentIndex, previousFrame, currentFrame) {
