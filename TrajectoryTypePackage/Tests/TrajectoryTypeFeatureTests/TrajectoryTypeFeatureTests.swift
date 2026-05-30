@@ -117,6 +117,21 @@ import Testing
     #expect(abs(rightCenter.y - 50) < 0.000_1)
 }
 
+@Test func frameCaptureMapsScreenLineLengthToVisibleCameraPixels() async throws {
+    let sourceExtent = CGRect(x: 0, y: 0, width: 1200, height: 1600)
+    let previewSize = CGSize(width: 390, height: 844)
+    let sourceLength = FrameCapture.sourceLineLengthPixels(
+        forScreenLength: 34,
+        in: sourceExtent,
+        previewSize: previewSize
+    )
+    let visibleSourceWidth = previewSize.width / previewSize.height * sourceExtent.height
+    let expectedLength = 34 * (visibleSourceWidth / previewSize.width)
+
+    #expect(abs(sourceLength - expectedLength) < 0.000_1)
+    #expect(sourceLength < 100)
+}
+
 @Test func frameCaptureSamplesBrushSectionFromCGImage() async throws {
     let sourceImage = try #require(makeTestImage(width: 12, height: 16))
     let sectionImage = FrameCapture().makeBrushSection(

@@ -15,7 +15,8 @@ public final class FrameCapture {
         previewSize: CGSize? = nil,
         outputSize: CGSize = CGSize(width: 1, height: 320),
         sourceWidthPixels: CGFloat = 1,
-        sourceLineLengthPixels: CGFloat = 640
+        sourceLineLengthPixels: CGFloat = 640,
+        screenLineLengthPoints: CGFloat? = nil
     ) -> CGImage? {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(.right)
         return makeBrushSection(
@@ -25,7 +26,8 @@ public final class FrameCapture {
             previewSize: previewSize,
             outputSize: outputSize,
             sourceWidthPixels: sourceWidthPixels,
-            sourceLineLengthPixels: sourceLineLengthPixels
+            sourceLineLengthPixels: sourceLineLengthPixels,
+            screenLineLengthPoints: screenLineLengthPoints
         )
     }
 
@@ -36,7 +38,8 @@ public final class FrameCapture {
         previewSize: CGSize? = nil,
         outputSize: CGSize = CGSize(width: 1, height: 320),
         sourceWidthPixels: CGFloat = 1,
-        sourceLineLengthPixels: CGFloat = 640
+        sourceLineLengthPixels: CGFloat = 640,
+        screenLineLengthPoints: CGFloat? = nil
     ) -> CGImage? {
         makeBrushSection(
             from: CIImage(cgImage: sourceCGImage),
@@ -45,7 +48,8 @@ public final class FrameCapture {
             previewSize: previewSize,
             outputSize: outputSize,
             sourceWidthPixels: sourceWidthPixels,
-            sourceLineLengthPixels: sourceLineLengthPixels
+            sourceLineLengthPixels: sourceLineLengthPixels,
+            screenLineLengthPoints: screenLineLengthPoints
         )
     }
 
@@ -56,7 +60,8 @@ public final class FrameCapture {
         previewSize: CGSize?,
         outputSize: CGSize,
         sourceWidthPixels: CGFloat,
-        sourceLineLengthPixels: CGFloat
+        sourceLineLengthPixels: CGFloat,
+        screenLineLengthPoints: CGFloat?
     ) -> CGImage? {
         let sourceExtent = sourceImage.extent
         let sampleCenter = Self.sourcePoint(
@@ -67,9 +72,16 @@ public final class FrameCapture {
         let crossVector = Self.crossVector(forBrushAngle: angleRadians)
         let crossAngle = atan2(crossVector.dy, crossVector.dx)
         let rotationToVertical = (CGFloat.pi / 2) - crossAngle
+        let requestedLineLength = screenLineLengthPoints.map {
+            Self.sourceLineLengthPixels(
+                forScreenLength: $0,
+                in: sourceExtent,
+                previewSize: previewSize
+            )
+        } ?? sourceLineLengthPixels
         let sectionHeight = max(
             1,
-            min(sourceLineLengthPixels, max(sourceExtent.width, sourceExtent.height))
+            min(requestedLineLength, max(sourceExtent.width, sourceExtent.height))
         )
         let sourceBounds = Self.lineSamplingBounds(
             center: sampleCenter,
@@ -134,6 +146,31 @@ public final class FrameCapture {
         )
 
         return bounds.intersection(sourceExtent)
+    }
+
+    nonisolated public static func sourceLineLengthPixels(
+        forScreenLength screenLength: CGFloat,
+        in sourceExtent: CGRect,
+        previewSize: CGSize? = nil
+    ) -> CGFloat {
+        guard screenLength > 0 else {
+            return 1
+        }
+
+        guard
+            let previewSize,
+            previewSize.width > 0,
+            previewSize.height > 0,
+            sourceExtent.width > 0,
+            sourceExtent.height > 0
+        else {
+            return screenLength
+        }
+
+        let visible = visibleSourceUnitRect(for: sourceExtent.size, previewSize: previewSize)
+        let pixelsPerPointX = (visible.width * sourceExtent.width) / previewSize.width
+        let pixelsPerPointY = (visible.height * sourceExtent.height) / previewSize.height
+        return max(1, screenLength * max(pixelsPerPointX, pixelsPerPointY))
     }
 
     nonisolated public static func sourcePoint(

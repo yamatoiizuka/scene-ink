@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Trajectory Type</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="stage">
+      <video id="camera" autoplay muted playsinline></video>
+      <canvas id="paint"></canvas>
+
+      <div class="toolbar" aria-label="Controls">
+        <button id="cameraButton" type="button" title="Start camera" aria-label="Start camera">◉</button>
+        <button id="undoButton" type="button" title="Undo" aria-label="Undo">↶</button>
+        <button id="clearButton" type="button" title="Clear" aria-label="Clear">⌫</button>
+        <input id="widthControl" type="range" min="8" max="96" value="34" step="1" title="Brush width" aria-label="Brush width">
+      </div>
+
+      <output id="status" aria-live="polite"></output>
+    </main>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

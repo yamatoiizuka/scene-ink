@@ -80,7 +80,8 @@ public final class CameraSessionManager: NSObject {
     public func makeLiveBrushSection(
         angleRadians: CGFloat,
         normalizedPreviewPoint: CGPoint,
-        previewSize: CGSize
+        previewSize: CGSize,
+        brushWidthPoints: CGFloat
     ) -> CGImage? {
         guard let pixelBuffer = frameStore.currentPixelBuffer() else {
             return nil
@@ -90,7 +91,8 @@ public final class CameraSessionManager: NSObject {
             from: pixelBuffer,
             angleRadians: angleRadians,
             normalizedPreviewPoint: normalizedPreviewPoint,
-            previewSize: previewSize
+            previewSize: previewSize,
+            screenLineLengthPoints: brushWidthPoints
         )
     }
 

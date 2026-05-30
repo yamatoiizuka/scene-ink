@@ -126,7 +126,8 @@ public struct ContentView: View {
             cameraManager.makeLiveBrushSection(
                 angleRadians: brushAngleRadians,
                 normalizedPreviewPoint: normalizedSamplePoint,
-                previewSize: size
+                previewSize: size,
+                brushWidthPoints: brushWidthPoints
             )
         }
         brushAngleRadians = strokeRecorder.currentBrushAngleRadians
