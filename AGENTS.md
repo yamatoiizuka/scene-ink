@@ -1,28 +1,23 @@
-# TrajectoryType - Agent Context
+# Trajectory Type - Agent Context
 
 ## Project
-- iOS app that records camera motion and camera frames, then stitches those frames into calligraphy-like strokes on the iPhone screen.
-- The final stroke is a screen-space 2D composition, not a line or mesh left in AR world space.
-- Swift 6, SwiftUI + UIKit bridge for ARKit views.
-- ARKit `ARWorldTrackingConfiguration` provides 6DoF pose tracking and camera frames.
-- Device translation maps to screen-space stroke movement; device rotation/roll should affect stroke curve, skew, and image-slice orientation.
-- The current prototype may use CPU/CoreGraphics image patches first; Metal is planned for higher-quality texture-mapped screen-space stroke compositing in later milestones.
-- Minimum deployment: iOS 17.0.
+- Web-only Vite prototype for drawing camera-sampled strokes on a mobile browser.
+- The camera feed is accessed with `getUserMedia`; strokes are driven by pointer/touch input.
+- The output is a screen-space 2D canvas composition, not AR/world-space geometry.
+- The current renderer uses Canvas 2D and offscreen canvases. WebGPU is not required for the baseline experience.
 
-## MCP Tools
-- Prefer XcodeBuildMCP for build, test, simulator, and device operations.
-- Use Xcode's native MCP for project structure queries and diagnostics when available.
-- Avoid raw `xcodebuild` commands when MCP tools can perform the same task.
+## Commands
+- Install dependencies: `npm install`
+- Run dev server: `npm run dev`
+- Build: `npm run build`
 
 ## Conventions
-- File naming: PascalCase, one type per file.
-- SwiftUI views are suffixed with `View`.
-- ARKit-related types are prefixed with `AR`.
-- Metal shaders should live under `Shaders/`.
-- Tests use the Swift Testing framework.
+- Keep the first screen as the usable camera drawing surface.
+- Optimize for iOS Safari and mobile touch input.
+- Use feature detection for optional browser APIs.
+- Keep camera access behind a secure context; the Vite dev server uses HTTPS via the basic SSL plugin.
 
 ## Known Constraints
-- ARKit does not provide full camera/world tracking behavior in Simulator. Device verification is required for AR behavior.
-- Camera frame access comes from `ARSession.currentFrame?.capturedImage`.
-- Render and capture loops should follow AR session updates rather than a separate display link.
-- Do not implement AR-world stroke persistence unless explicitly requested; trajectory visualization should be screen-space.
+- iOS camera access requires HTTPS and user permission.
+- WebGPU support depends on Safari/iOS version; do not make WebGPU mandatory without a Canvas fallback.
+- Avoid native iOS/Xcode project work unless the project direction changes again.
