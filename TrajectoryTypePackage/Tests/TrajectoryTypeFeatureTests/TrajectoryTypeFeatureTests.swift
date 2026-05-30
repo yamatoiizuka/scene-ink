@@ -98,12 +98,10 @@ import Testing
 }
 
 @MainActor
-@Test func screenStrokeRecorderMovesBrushSamplePointWithCameraTranslation() async throws {
+@Test func screenStrokeRecorderRequestsBrushSectionOnlyWhenAppendingSample() async throws {
     let recorder = ScreenStrokeRecorder()
     let viewportSize = CGSize(width: 400, height: 800)
-    var translated = matrix_identity_float4x4
-    translated.columns.3 = SIMD4<Float>(0.05, 0.03, 0, 1)
-    var samplePoints: [CGPoint] = []
+    var sectionRequestCount = 0
 
     recorder.begin(
         at: CGPoint(x: 200, y: 400),
@@ -115,24 +113,21 @@ import Testing
         pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
         in: viewportSize,
         brushWidth: 12
-    ) { _, normalizedSamplePoint in
-        samplePoints.append(normalizedSamplePoint)
+    ) { _ in
+        sectionRequestCount += 1
         return nil
     }
     recorder.record(
-        pose: CameraPose(transform: translated, timestamp: 2),
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 2),
         in: viewportSize,
         brushWidth: 12
-    ) { _, normalizedSamplePoint in
-        samplePoints.append(normalizedSamplePoint)
+    ) { _ in
+        sectionRequestCount += 1
         return nil
     }
 
-    #expect(samplePoints.count == 2)
-    #expect(abs(samplePoints[0].x - 0.5) < 0.000_1)
-    #expect(abs(samplePoints[0].y - 0.5) < 0.000_1)
-    #expect(samplePoints[1].x > samplePoints[0].x)
-    #expect(samplePoints[1].y > samplePoints[0].y)
+    #expect(recorder.activeSamples.count == 1)
+    #expect(sectionRequestCount == 1)
 }
 
 @Test func deviceAngleDeltaIgnoresOutOfScreenPlaneTilt() async throws {
@@ -284,7 +279,7 @@ import Testing
     #expect(abs(rightCenter.y - 50) < 0.000_1)
 }
 
-@Test func frameCaptureSamplesBrushSectionFromStillImage() async throws {
+@Test func frameCaptureSamplesBrushSectionFromCGImage() async throws {
     let sourceImage = try #require(makeTestImage(width: 12, height: 16))
     let sectionImage = FrameCapture().makeBrushSection(
         from: sourceImage,
@@ -294,6 +289,21 @@ import Testing
 
     #expect(sectionImage?.width == 1)
     #expect(sectionImage?.height == 12)
+}
+
+@Test func frameCaptureLimitsSamplingBoundsToLinePatch() async throws {
+    let sourceExtent = CGRect(x: 0, y: 0, width: 2000, height: 1500)
+    let bounds = FrameCapture.lineSamplingBounds(
+        center: CGPoint(x: 1000, y: 750),
+        brushAngleRadians: 0,
+        lineLengthPixels: 640,
+        lineWidthPixels: 1,
+        sourceExtent: sourceExtent
+    )
+
+    #expect(bounds.width < sourceExtent.width / 2)
+    #expect(bounds.height < 20)
+    #expect(bounds.contains(CGPoint(x: 1000, y: 750)))
 }
 
 @MainActor

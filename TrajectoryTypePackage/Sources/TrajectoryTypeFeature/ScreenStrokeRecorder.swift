@@ -106,7 +106,7 @@ public final class ScreenStrokeRecorder {
         pose: CameraPose,
         in viewportSize: CGSize,
         brushWidth: CGFloat,
-        brushSectionProvider: (CGFloat, CGPoint) -> CGImage? = { _, _ in nil }
+        brushSectionProvider: (CGFloat) -> CGImage? = { _ in nil }
     ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
             return
@@ -139,7 +139,6 @@ public final class ScreenStrokeRecorder {
             around: startPoint,
             angleRadians: deviceAngleDelta
         )
-        let normalizedSamplePoint = Self.normalizedPoint(for: point, in: viewportSize)
 
         if shouldAppend(point: point, brushWidth: brushWidth, brushAngleRadians: brushAngleRadians) {
             append(
@@ -148,7 +147,7 @@ public final class ScreenStrokeRecorder {
                 brushAngleRadians: brushAngleRadians,
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
-                brushSectionImage: brushSectionProvider(brushAngleRadians, normalizedSamplePoint)
+                brushSectionImage: brushSectionProvider(brushAngleRadians)
             )
         }
     }
