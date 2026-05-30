@@ -44,6 +44,7 @@ public struct ContentView: View {
 
                         if strokeRecorder.isRecording {
                             strokeRecorder.end()
+                            sessionManager.clearStrokeSourceImage()
                             return
                         }
 
@@ -52,6 +53,7 @@ public struct ContentView: View {
                         }
 
                         applyBrushConfiguration(configuration, in: size)
+                        sessionManager.captureStrokeSourceImage()
                         strokeRecorder.begin(
                             at: configuration.startPoint,
                             in: size,
@@ -76,7 +78,7 @@ public struct ContentView: View {
                     .allowsHitTesting(false)
             }
             .onChange(of: sessionManager.latestPose?.timestamp) {
-                guard let pose = sessionManager.latestPose else {
+                guard strokeRecorder.isRecording, let pose = sessionManager.latestPose else {
                     return
                 }
 
@@ -99,6 +101,7 @@ public struct ContentView: View {
             sessionManager.start()
         }
         .onDisappear {
+            sessionManager.clearStrokeSourceImage()
             sessionManager.pause()
         }
     }
@@ -124,6 +127,7 @@ public struct ContentView: View {
 
                 Button {
                     strokeRecorder.clear()
+                    sessionManager.clearStrokeSourceImage()
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 18, weight: .semibold))
@@ -147,6 +151,7 @@ public struct ContentView: View {
             Text("strokes: \(strokeRecorder.strokes.count)")
             Text("stroke samples: \(strokeRecorder.sampleCount)")
             Text("section samples: \(strokeRecorder.brushSectionSampleCount)")
+            Text("source: \(sessionManager.hasStrokeSourceImage ? "fixed" : "live")")
             Text("brush: \(Int(brushWidthPoints.rounded()))pt \(Int(BrushDragConfiguration.degrees(from: brushAngleRadians).rounded()))°")
         }
         .font(.system(.caption, design: .monospaced))

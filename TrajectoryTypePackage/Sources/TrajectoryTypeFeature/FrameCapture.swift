@@ -8,6 +8,11 @@ public final class FrameCapture {
 
     public init() {}
 
+    public func makeSourceImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let sourceImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(.right)
+        return context.createCGImage(sourceImage, from: sourceImage.extent)
+    }
+
     public func makeBrushSection(
         from pixelBuffer: CVPixelBuffer,
         angleRadians: CGFloat,
@@ -17,6 +22,42 @@ public final class FrameCapture {
         sourceWidthPixels: CGFloat = 1
     ) -> CGImage? {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(.right)
+        return makeBrushSection(
+            from: sourceImage,
+            angleRadians: angleRadians,
+            normalizedPreviewPoint: normalizedPreviewPoint,
+            previewSize: previewSize,
+            outputSize: outputSize,
+            sourceWidthPixels: sourceWidthPixels
+        )
+    }
+
+    public func makeBrushSection(
+        from sourceCGImage: CGImage,
+        angleRadians: CGFloat,
+        normalizedPreviewPoint: CGPoint = CGPoint(x: 0.5, y: 0.5),
+        previewSize: CGSize? = nil,
+        outputSize: CGSize = CGSize(width: 1, height: 320),
+        sourceWidthPixels: CGFloat = 1
+    ) -> CGImage? {
+        makeBrushSection(
+            from: CIImage(cgImage: sourceCGImage),
+            angleRadians: angleRadians,
+            normalizedPreviewPoint: normalizedPreviewPoint,
+            previewSize: previewSize,
+            outputSize: outputSize,
+            sourceWidthPixels: sourceWidthPixels
+        )
+    }
+
+    private func makeBrushSection(
+        from sourceImage: CIImage,
+        angleRadians: CGFloat,
+        normalizedPreviewPoint: CGPoint,
+        previewSize: CGSize?,
+        outputSize: CGSize,
+        sourceWidthPixels: CGFloat
+    ) -> CGImage? {
         let sourceExtent = sourceImage.extent
         let sampleCenter = Self.sourcePoint(
             in: sourceExtent,

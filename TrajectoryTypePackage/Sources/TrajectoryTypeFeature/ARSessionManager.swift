@@ -8,13 +8,14 @@ import Observation
 public final class ARSessionManager: NSObject {
     public let session: ARSession
     public private(set) var latestPose: CameraPose?
-    public private(set) var latestBrushSection: CGImage?
+    public private(set) var hasStrokeSourceImage = false
     public private(set) var trackingDescription = "AR session is not running."
     public private(set) var isRunning = false
     public var brushAngleRadians: CGFloat = 0
     public private(set) var normalizedBrushSamplePoint = CGPoint(x: 0.5, y: 0.5)
     public private(set) var brushPreviewSize: CGSize?
     private let frameCapture = FrameCapture()
+    private var strokeSourceImage: CGImage?
 
     public override init() {
         self.session = ARSession()
@@ -59,22 +60,40 @@ public final class ARSessionManager: NSObject {
         brushPreviewSize = previewSize
     }
 
+    public func captureStrokeSourceImage() {
+        guard
+            let pixelBuffer = session.currentFrame?.capturedImage,
+            let sourceImage = frameCapture.makeSourceImage(from: pixelBuffer)
+        else {
+            strokeSourceImage = nil
+            hasStrokeSourceImage = false
+            return
+        }
+
+        strokeSourceImage = sourceImage
+        hasStrokeSourceImage = true
+    }
+
+    public func clearStrokeSourceImage() {
+        strokeSourceImage = nil
+        hasStrokeSourceImage = false
+    }
+
     public func makeBrushSection(angleRadians: CGFloat) -> CGImage? {
-        guard let pixelBuffer = session.currentFrame?.capturedImage else {
-            return latestBrushSection
+        guard let strokeSourceImage else {
+            return nil
         }
 
         return frameCapture.makeBrushSection(
-            from: pixelBuffer,
+            from: strokeSourceImage,
             angleRadians: angleRadians,
             normalizedPreviewPoint: normalizedBrushSamplePoint,
             previewSize: brushPreviewSize
         )
     }
 
-    private func update(with pose: CameraPose, brushSection: CGImage?, trackingDescription: String) {
+    private func update(with pose: CameraPose, trackingDescription: String) {
         latestPose = pose
-        latestBrushSection = brushSection
         self.trackingDescription = trackingDescription
     }
 
@@ -94,13 +113,7 @@ extension ARSessionManager: ARSessionDelegate {
                 return
             }
 
-            let brushSection = self.frameCapture.makeBrushSection(
-                from: frame.capturedImage,
-                angleRadians: self.brushAngleRadians,
-                normalizedPreviewPoint: self.normalizedBrushSamplePoint,
-                previewSize: self.brushPreviewSize
-            )
-            self.update(with: pose, brushSection: brushSection, trackingDescription: trackingDescription)
+            self.update(with: pose, trackingDescription: trackingDescription)
         }
     }
 

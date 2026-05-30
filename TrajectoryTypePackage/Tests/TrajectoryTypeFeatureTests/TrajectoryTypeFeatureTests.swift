@@ -246,6 +246,18 @@ import Testing
     #expect(abs(rightCenter.y - 50) < 0.000_1)
 }
 
+@Test func frameCaptureSamplesBrushSectionFromStillImage() async throws {
+    let sourceImage = try #require(makeTestImage(width: 12, height: 16))
+    let sectionImage = FrameCapture().makeBrushSection(
+        from: sourceImage,
+        angleRadians: 0,
+        outputSize: CGSize(width: 1, height: 12)
+    )
+
+    #expect(sectionImage?.width == 1)
+    #expect(sectionImage?.height == 12)
+}
+
 @MainActor
 @Test func endingRecorderCommitsActiveStrokeInDrawOrder() async throws {
     let recorder = ScreenStrokeRecorder()
@@ -344,4 +356,23 @@ private func transform(rotatedAroundX radians: Float) -> simd_float4x4 {
     transform.columns.2 = SIMD4<Float>(0, -s, c, 0)
 
     return transform
+}
+
+private func makeTestImage(width: Int, height: Int) -> CGImage? {
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+
+    context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.3, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage()
 }
