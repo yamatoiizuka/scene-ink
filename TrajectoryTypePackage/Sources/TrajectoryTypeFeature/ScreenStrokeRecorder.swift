@@ -9,9 +9,13 @@ public final class ScreenStrokeRecorder {
     public private(set) var strokes: [ScreenStroke] = []
     public private(set) var activeSamples: [ScreenStrokeSample] = []
     public private(set) var isRecording = false
+    public private(set) var currentBrushAngleRadians: CGFloat = 0
+    public private(set) var currentStrokeRotationRadians: CGFloat = 0
 
     private var anchorTransform: simd_float4x4?
     private var startPoint: CGPoint?
+    private var viewportSize: CGSize?
+    private var initialBrushAngleRadians: CGFloat = 0
     private var lastRenderedPoint: CGPoint?
     private var lastBrushAngleRadians: CGFloat = 0
     private var lastWidth: CGFloat = 0
@@ -28,7 +32,7 @@ public final class ScreenStrokeRecorder {
             return strokes
         }
 
-        return strokes + [ScreenStroke(samples: activeSamples)]
+        return strokes + [ScreenStroke(samples: transformedActiveSamples())]
     }
 
     public var sampleCount: Int {
@@ -46,10 +50,19 @@ public final class ScreenStrokeRecorder {
         return committedCount + activeCount
     }
 
-    public func begin(at point: CGPoint, in viewportSize: CGSize, pose: CameraPose?) {
+    public func begin(
+        at point: CGPoint,
+        in viewportSize: CGSize,
+        pose: CameraPose?,
+        brushAngleRadians: CGFloat
+    ) {
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = pose?.transform
         startPoint = point
+        self.viewportSize = viewportSize
+        initialBrushAngleRadians = brushAngleRadians
+        currentBrushAngleRadians = brushAngleRadians
+        currentStrokeRotationRadians = 0
         lastRenderedPoint = nil
         lastBrushAngleRadians = 0
         lastWidth = 0
@@ -58,12 +71,14 @@ public final class ScreenStrokeRecorder {
 
     public func end() {
         if !activeSamples.isEmpty {
-            strokes.append(ScreenStroke(samples: activeSamples))
+            strokes.append(ScreenStroke(samples: transformedActiveSamples()))
         }
 
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         startPoint = nil
+        viewportSize = nil
+        currentStrokeRotationRadians = 0
         lastRenderedPoint = nil
         isRecording = false
     }
@@ -73,6 +88,10 @@ public final class ScreenStrokeRecorder {
         activeSamples.removeAll(keepingCapacity: true)
         anchorTransform = nil
         startPoint = nil
+        viewportSize = nil
+        initialBrushAngleRadians = 0
+        currentBrushAngleRadians = 0
+        currentStrokeRotationRadians = 0
         lastRenderedPoint = nil
         lastBrushAngleRadians = 0
         lastWidth = 0
@@ -91,8 +110,7 @@ public final class ScreenStrokeRecorder {
         pose: CameraPose,
         in viewportSize: CGSize,
         brushWidth: CGFloat,
-        brushAngleRadians: CGFloat,
-        brushSectionProvider: () -> CGImage? = { nil }
+        brushSectionProvider: (CGFloat) -> CGImage? = { _ in nil }
     ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
             return
@@ -105,6 +123,14 @@ public final class ScreenStrokeRecorder {
         guard let anchorTransform, let startPoint else {
             return
         }
+
+        let deviceAngleDelta = Self.deviceAngleDelta(from: anchorTransform, to: pose.transform)
+        let brushAngleRadians = Self.brushAngle(
+            initialBrushAngleRadians: initialBrushAngleRadians,
+            deviceAngleDelta: deviceAngleDelta
+        )
+        currentBrushAngleRadians = brushAngleRadians
+        currentStrokeRotationRadians = deviceAngleDelta
 
         let point = screenPoint(
             for: pose.transform,
@@ -120,7 +146,36 @@ public final class ScreenStrokeRecorder {
                 brushAngleRadians: brushAngleRadians,
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
-                brushSectionImage: brushSectionProvider()
+                brushSectionImage: brushSectionProvider(brushAngleRadians)
+            )
+        }
+    }
+
+    private func transformedActiveSamples() -> [ScreenStrokeSample] {
+        guard
+            let startPoint,
+            let viewportSize,
+            activeSamples.isEmpty == false,
+            abs(currentStrokeRotationRadians) > 0.000_1
+        else {
+            return activeSamples
+        }
+
+        return activeSamples.map { sample in
+            let point = sample.point(in: viewportSize)
+            let rotatedPoint = Self.rotate(point: point, around: startPoint, angleRadians: currentStrokeRotationRadians)
+            let normalizedPoint = CGPoint(
+                x: rotatedPoint.x / viewportSize.width,
+                y: rotatedPoint.y / viewportSize.height
+            )
+
+            return ScreenStrokeSample(
+                id: sample.id,
+                normalizedPoint: normalizedPoint,
+                brushAngleRadians: sample.brushAngleRadians,
+                width: sample.width,
+                timestamp: sample.timestamp,
+                brushSectionImage: sample.brushSectionImage
             )
         }
     }
@@ -133,7 +188,7 @@ public final class ScreenStrokeRecorder {
     ) -> CGPoint {
         let relative = Self.relativeTranslation(from: anchorTransform, to: transform)
         let pointsPerMeter = min(viewportSize.width, viewportSize.height) * pointsPerScreen
-        let screenTranslation = Self.screenTranslation(from: relative) * Float(pointsPerMeter)
+        let screenTranslation = Self.projectedScreenTranslation(from: relative) * Float(pointsPerMeter)
 
         return CGPoint(
             x: startPoint.x + CGFloat(screenTranslation.x),
@@ -197,11 +252,86 @@ public final class ScreenStrokeRecorder {
     }
 
     nonisolated public static func screenTranslation(from relativeTranslation: SIMD3<Float>) -> SIMD2<Float> {
+        projectedScreenTranslation(from: relativeTranslation)
+    }
+
+    nonisolated public static func projectedScreenTranslation(
+        from relativeTranslation: SIMD3<Float>
+    ) -> SIMD2<Float> {
+        // Project onto the screen-parallel plane. Local z is camera depth and is intentionally discarded.
         SIMD2(relativeTranslation.y, relativeTranslation.x)
     }
 
     nonisolated public static func angularDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
         let difference = abs(lhs - rhs).truncatingRemainder(dividingBy: .pi * 2)
         return min(difference, (.pi * 2) - difference)
+    }
+
+    nonisolated public static func brushAngle(
+        initialBrushAngleRadians: CGFloat,
+        deviceAngleDelta: CGFloat
+    ) -> CGFloat {
+        normalizedAngle(initialBrushAngleRadians + deviceAngleDelta)
+    }
+
+    nonisolated public static func brushAngle(
+        initialBrushAngleRadians: CGFloat,
+        anchorTransform: simd_float4x4,
+        currentTransform: simd_float4x4
+    ) -> CGFloat {
+        let delta = deviceAngleDelta(from: anchorTransform, to: currentTransform)
+        return brushAngle(initialBrushAngleRadians: initialBrushAngleRadians, deviceAngleDelta: delta)
+    }
+
+    nonisolated public static func deviceAngleDelta(
+        from anchorTransform: simd_float4x4,
+        to transform: simd_float4x4
+    ) -> CGFloat {
+        let relative = simd_inverse(anchorTransform) * transform
+        let rotationMatrix = simd_float3x3(
+            SIMD3(relative.columns.0.x, relative.columns.0.y, relative.columns.0.z),
+            SIMD3(relative.columns.1.x, relative.columns.1.y, relative.columns.1.z),
+            SIMD3(relative.columns.2.x, relative.columns.2.y, relative.columns.2.z)
+        )
+        let rotation = simd_quatf(rotationMatrix)
+        let scalar: Float
+        let z: Float
+
+        if rotation.real < 0 {
+            scalar = -rotation.real
+            z = -rotation.imag.z
+        } else {
+            scalar = rotation.real
+            z = rotation.imag.z
+        }
+
+        guard abs(scalar) > 0.000_001 || abs(z) > 0.000_001 else {
+            return 0
+        }
+
+        return CGFloat(2 * atan2(z, scalar))
+    }
+
+    nonisolated public static func normalizedAngle(_ angle: CGFloat) -> CGFloat {
+        let fullTurn = CGFloat.pi * 2
+        let normalized = angle.truncatingRemainder(dividingBy: fullTurn)
+
+        if normalized >= 0 {
+            return normalized
+        }
+
+        return normalized + fullTurn
+    }
+
+    nonisolated public static func rotate(point: CGPoint, around anchor: CGPoint, angleRadians: CGFloat) -> CGPoint {
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        let cosAngle = cos(angleRadians)
+        let sinAngle = sin(angleRadians)
+
+        return CGPoint(
+            x: anchor.x + (dx * cosAngle) - (dy * sinAngle),
+            y: anchor.y + (dx * sinAngle) + (dy * cosAngle)
+        )
     }
 }

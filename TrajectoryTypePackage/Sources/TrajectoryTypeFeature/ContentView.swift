@@ -52,7 +52,12 @@ public struct ContentView: View {
                         }
 
                         applyBrushConfiguration(configuration, in: size)
-                        strokeRecorder.begin(at: configuration.startPoint, in: size, pose: sessionManager.latestPose)
+                        strokeRecorder.begin(
+                            at: configuration.startPoint,
+                            in: size,
+                            pose: sessionManager.latestPose,
+                            brushAngleRadians: brushAngleRadians
+                        )
                     },
                     onDragCancelled: {
                         pendingBrushConfiguration = nil
@@ -75,15 +80,15 @@ public struct ContentView: View {
                     return
                 }
 
-                sessionManager.brushAngleRadians = brushAngleRadians
                 strokeRecorder.record(
                     pose: pose,
                     in: proxy.size,
-                    brushWidth: brushWidthPoints,
-                    brushAngleRadians: brushAngleRadians
-                ) {
-                    sessionManager.latestBrushSection
+                    brushWidth: brushWidthPoints
+                ) { brushAngleRadians in
+                    sessionManager.makeBrushSection(angleRadians: brushAngleRadians)
                 }
+                brushAngleRadians = strokeRecorder.currentBrushAngleRadians
+                sessionManager.brushAngleRadians = strokeRecorder.currentBrushAngleRadians
             }
             .onChange(of: brushAngleRadians) {
                 sessionManager.brushAngleRadians = brushAngleRadians

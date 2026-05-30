@@ -59,6 +59,19 @@ public final class ARSessionManager: NSObject {
         brushPreviewSize = previewSize
     }
 
+    public func makeBrushSection(angleRadians: CGFloat) -> CGImage? {
+        guard let pixelBuffer = session.currentFrame?.capturedImage else {
+            return latestBrushSection
+        }
+
+        return frameCapture.makeBrushSection(
+            from: pixelBuffer,
+            angleRadians: angleRadians,
+            normalizedPreviewPoint: normalizedBrushSamplePoint,
+            previewSize: brushPreviewSize
+        )
+    }
+
     private func update(with pose: CameraPose, brushSection: CGImage?, trackingDescription: String) {
         latestPose = pose
         latestBrushSection = brushSection
