@@ -3,64 +3,34 @@ import SwiftUI
 
 @MainActor
 public struct ContentView: View {
-    @State private var sessionManager = ARSessionManager()
+    @State private var cameraManager = CameraSessionManager()
     @State private var strokeRecorder = ScreenStrokeRecorder()
     @State private var brushWidthPoints: CGFloat = 34
     @State private var brushAngleRadians: CGFloat = 0
-    @State private var pendingBrushConfiguration: BrushDragConfiguration?
 
     public var body: some View {
-        GeometryReader { proxy in
+        GeometryReader { _ in
             ZStack(alignment: .bottomLeading) {
-                ARViewContainer(sessionManager: sessionManager)
+                CameraPreviewContainer(session: cameraManager.session)
                     .ignoresSafeArea()
-                    .opacity(strokeRecorder.isRecording ? 0 : 1)
-
-                Color.black
-                    .ignoresSafeArea()
-                    .opacity(strokeRecorder.isRecording ? 1 : 0)
 
                 StrokeCanvasView(strokes: strokeRecorder.displayStrokes)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
-                if let pendingBrushConfiguration, !strokeRecorder.isRecording {
-                    BrushDragGuideView(configuration: pendingBrushConfiguration)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
-
                 StrokeTouchSurface(
-                    onDragChanged: { configuration, size in
-                        guard !strokeRecorder.isRecording else {
-                            return
-                        }
-
-                        pendingBrushConfiguration = configuration
-                        applyBrushConfiguration(configuration, in: size)
+                    onDragBegan: { point, size in
+                        beginStroke(at: point, in: size)
                     },
-                    onDragEnded: { configuration, size in
-                        pendingBrushConfiguration = nil
-
-                        if strokeRecorder.isRecording {
-                            strokeRecorder.end()
-                            return
-                        }
-
-                        guard configuration.isDrawable else {
-                            return
-                        }
-
-                        applyBrushConfiguration(configuration, in: size)
-                        strokeRecorder.begin(
-                            at: configuration.startPoint,
-                            in: size,
-                            pose: sessionManager.latestPose,
-                            brushAngleRadians: brushAngleRadians
-                        )
+                    onDragMoved: { point, size in
+                        recordStroke(at: point, in: size)
+                    },
+                    onDragEnded: { point, size in
+                        recordStroke(at: point, in: size)
+                        strokeRecorder.end()
                     },
                     onDragCancelled: {
-                        pendingBrushConfiguration = nil
+                        strokeRecorder.end()
                     }
                 )
                 .ignoresSafeArea()
@@ -75,31 +45,12 @@ public struct ContentView: View {
                     .padding(.top, 16)
                     .allowsHitTesting(false)
             }
-            .onChange(of: sessionManager.latestPose?.timestamp) {
-                guard strokeRecorder.isRecording, let pose = sessionManager.latestPose else {
-                    return
-                }
-
-                strokeRecorder.record(
-                    pose: pose,
-                    in: proxy.size,
-                    brushWidth: brushWidthPoints
-                ) { brushAngleRadians in
-                    sessionManager.makeLiveBrushSection(angleRadians: brushAngleRadians)
-                }
-                brushAngleRadians = strokeRecorder.currentBrushAngleRadians
-                sessionManager.brushAngleRadians = strokeRecorder.currentBrushAngleRadians
-            }
-            .onChange(of: brushAngleRadians) {
-                sessionManager.brushAngleRadians = brushAngleRadians
-            }
         }
         .onAppear {
-            sessionManager.brushAngleRadians = brushAngleRadians
-            sessionManager.start()
+            cameraManager.start()
         }
         .onDisappear {
-            sessionManager.pause()
+            cameraManager.stop()
         }
     }
 
@@ -140,27 +91,44 @@ public struct ContentView: View {
 
     private var debugOverlay: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(sessionManager.trackingDescription)
+            Text(cameraManager.captureDescription)
                 .font(.system(.footnote, design: .rounded))
 
             Text(strokeRecorder.isRecording ? "recording: on" : "recording: off")
             Text("strokes: \(strokeRecorder.strokes.count)")
             Text("stroke samples: \(strokeRecorder.sampleCount)")
             Text("section samples: \(strokeRecorder.brushSectionSampleCount)")
-            Text("brush: \(Int(brushWidthPoints.rounded()))pt \(Int(BrushDragConfiguration.degrees(from: brushAngleRadians).rounded()))°")
+            Text("brush: \(Int(brushWidthPoints.rounded()))pt \(Int((brushAngleRadians * 180 / .pi).rounded()))°")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)
         .padding(12)
         .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("AR tracking debug information")
+        .accessibilityLabel("Camera stroke debug information")
     }
 
-    private func applyBrushConfiguration(_ configuration: BrushDragConfiguration, in size: CGSize) {
-        brushWidthPoints = max(configuration.width, BrushDragConfiguration.minimumDrawableWidth)
-        brushAngleRadians = configuration.angleRadians
-        sessionManager.brushAngleRadians = configuration.angleRadians
-        sessionManager.setBrushSamplePoint(configuration.startPoint, in: size)
+    private func beginStroke(at point: CGPoint, in size: CGSize) {
+        strokeRecorder.begin(
+            at: point,
+            in: size,
+            brushAngleRadians: brushAngleRadians
+        )
+        recordStroke(at: point, in: size)
+    }
+
+    private func recordStroke(at point: CGPoint, in size: CGSize) {
+        strokeRecorder.record(
+            point: point,
+            in: size,
+            brushWidth: brushWidthPoints
+        ) { brushAngleRadians, normalizedSamplePoint in
+            cameraManager.makeLiveBrushSection(
+                angleRadians: brushAngleRadians,
+                normalizedPreviewPoint: normalizedSamplePoint,
+                previewSize: size
+            )
+        }
+        brushAngleRadians = strokeRecorder.currentBrushAngleRadians
     }
 }
