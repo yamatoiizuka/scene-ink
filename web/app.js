@@ -14,16 +14,23 @@ const textureCanvas = document.createElement("canvas");
 const textureContext = textureCanvas.getContext("2d", { alpha: true });
 const maskCanvas = document.createElement("canvas");
 const maskContext = maskCanvas.getContext("2d", { alpha: true });
+const segmentTextureCanvas = document.createElement("canvas");
+const segmentTextureContext = segmentTextureCanvas.getContext("2d", { alpha: true });
 
 const sectionResolution = 128;
 const sectionSampleWidth = 2;
-const curveSampleSpacing = 2.25;
-const stampOverlap = 3;
+const segmentTextureColumns = 6;
+const skeletonSampleSpacing = 1.7;
+const bezierTension = 0.82;
+const ribbonOverdraw = 0.75;
 const minimumPointDistance = 4.5;
 const minimumAngleDelta = Math.PI / 90;
 const temporalJoinRadius = 5;
 const temporalJoinColumnStep = 3;
 const temporalJoinMaxColumns = 20;
+
+segmentTextureCanvas.width = segmentTextureColumns;
+segmentTextureCanvas.height = sectionResolution;
 
 let strokes = [];
 let activeSamples = [];
@@ -368,7 +375,8 @@ function drawStrokeTo(samples, destinationContext) {
     return;
   }
 
-  const renderSamples = buildRenderSamples(samples);
+  const skeleton = buildBezierSkeleton(samples);
+  const renderSamples = sampleBezierSkeleton(skeleton);
   if (renderSamples.length < 2) {
     return;
   }
@@ -386,20 +394,19 @@ function drawTexturedStroke(renderSamples) {
   textureContext.imageSmoothingEnabled = true;
   textureContext.imageSmoothingQuality = "high";
 
-  for (let index = 0; index < renderSamples.length; index += 1) {
+  for (let index = 1; index < renderSamples.length; index += 1) {
+    const previous = renderSamples[index - 1];
     const current = renderSamples[index];
-    const previous = renderSamples[Math.max(0, index - 1)];
-    const next = renderSamples[Math.min(renderSamples.length - 1, index + 1)];
-    const tangent = normalizedVector(previous, next);
-    const cross = { x: -tangent.y, y: tangent.x };
-    const thickness = Math.max(1, distance(previous, next) / 2 + stampOverlap);
+    if (distance(previous, current) <= 0.001) {
+      continue;
+    }
 
-    drawSlice(
+    const texture = buildSegmentTexture(previous, current);
+    drawRibbonSegment(
       textureContext,
-      current,
-      tangent,
-      cross,
-      thickness
+      texture,
+      ribbonFrame(previous),
+      ribbonFrame(current)
     );
   }
 }
@@ -461,21 +468,8 @@ function traceSmoothPath(targetContext, points, startIndex, endIndex) {
   const first = points[startIndex];
   targetContext.moveTo(first.x, first.y);
 
-  if (endIndex - startIndex === 1) {
-    const last = points[endIndex];
-    targetContext.lineTo(last.x, last.y);
-    return;
-  }
-
   for (let index = startIndex + 1; index < endIndex; index += 1) {
-    const current = points[index];
-    const next = points[index + 1];
-    targetContext.quadraticCurveTo(
-      current.x,
-      current.y,
-      (current.x + next.x) / 2,
-      (current.y + next.y) / 2
-    );
+    targetContext.lineTo(points[index].x, points[index].y);
   }
 
   const last = points[endIndex];
@@ -489,48 +483,204 @@ function clearWorkCanvas(targetContext) {
   targetContext.restore();
 }
 
-function drawSlice(targetContext, sample, tangent, cross, thickness) {
-  targetContext.save();
-  targetContext.transform(
-    tangent.x * thickness,
-    tangent.y * thickness,
-    cross.x * sample.width,
-    cross.y * sample.width,
-    sample.x,
-    sample.y
-  );
+function buildSegmentTexture(previous, current) {
+  segmentTextureContext.setTransform(1, 0, 0, 1, 0, 0);
+  segmentTextureContext.clearRect(0, 0, segmentTextureCanvas.width, segmentTextureCanvas.height);
+  segmentTextureContext.imageSmoothingEnabled = true;
+  segmentTextureContext.imageSmoothingQuality = "high";
 
+  for (let column = 0; column < segmentTextureCanvas.width; column += 1) {
+    const t = segmentTextureCanvas.width === 1 ? 0 : column / (segmentTextureCanvas.width - 1);
+    drawResolvedSectionColumn(segmentTextureContext, previous, column, 1);
+    drawResolvedSectionColumn(segmentTextureContext, current, column, t);
+  }
+
+  segmentTextureContext.globalAlpha = 1;
+  return segmentTextureCanvas;
+}
+
+function drawResolvedSectionColumn(targetContext, sample, column, alpha) {
+  if (alpha <= 0) {
+    return;
+  }
+
+  targetContext.save();
   if (sample.previousSection) {
-    targetContext.globalAlpha = 1;
-    targetContext.drawImage(sample.previousSection, -0.5, -0.5, 1, 1);
+    targetContext.globalAlpha = alpha;
+    drawSectionColumn(targetContext, sample.previousSection, column);
   }
   if (sample.currentSection) {
-    targetContext.globalAlpha = Math.min(1, sample.sectionT);
-    targetContext.drawImage(sample.currentSection, -0.5, -0.5, 1, 1);
+    targetContext.globalAlpha = alpha * Math.min(1, sample.sectionT);
+    drawSectionColumn(targetContext, sample.currentSection, column);
   }
-
   targetContext.restore();
 }
 
-function buildRenderSamples(samples) {
-  const renderSamples = [];
+function drawSectionColumn(targetContext, section, column) {
+  targetContext.drawImage(
+    section,
+    0,
+    0,
+    section.width,
+    section.height,
+    column,
+    0,
+    1,
+    segmentTextureCanvas.height
+  );
+}
 
-  for (let index = 0; index < samples.length - 1; index += 1) {
-    const from = samplePoint(samples[index]);
-    const to = samplePoint(samples[index + 1]);
-    const segmentLength = Math.max(1, distance(from, to));
-    const steps = Math.max(1, Math.ceil(segmentLength / curveSampleSpacing));
+function ribbonFrame(sample) {
+  const tangent = sample.tangent || { x: 1, y: 0 };
+  const cross = { x: -tangent.y, y: tangent.x };
+  const halfWidth = sample.width / 2 + ribbonOverdraw;
+
+  return {
+    top: {
+      x: sample.x - cross.x * halfWidth,
+      y: sample.y - cross.y * halfWidth
+    },
+    bottom: {
+      x: sample.x + cross.x * halfWidth,
+      y: sample.y + cross.y * halfWidth
+    }
+  };
+}
+
+function drawRibbonSegment(targetContext, texture, previousFrame, currentFrame) {
+  const sourceTopLeft = { x: 0, y: 0 };
+  const sourceTopRight = { x: texture.width, y: 0 };
+  const sourceBottomLeft = { x: 0, y: texture.height };
+  const sourceBottomRight = { x: texture.width, y: texture.height };
+
+  drawTexturedTriangle(
+    targetContext,
+    texture,
+    [sourceTopLeft, sourceTopRight, sourceBottomLeft],
+    [previousFrame.top, currentFrame.top, previousFrame.bottom]
+  );
+  drawTexturedTriangle(
+    targetContext,
+    texture,
+    [sourceBottomLeft, sourceTopRight, sourceBottomRight],
+    [previousFrame.bottom, currentFrame.top, currentFrame.bottom]
+  );
+}
+
+function drawTexturedTriangle(targetContext, texture, sourceTriangle, destinationTriangle) {
+  const matrix = triangleTransform(sourceTriangle, destinationTriangle);
+  if (!matrix) {
+    return;
+  }
+
+  targetContext.save();
+  targetContext.beginPath();
+  targetContext.moveTo(destinationTriangle[0].x, destinationTriangle[0].y);
+  targetContext.lineTo(destinationTriangle[1].x, destinationTriangle[1].y);
+  targetContext.lineTo(destinationTriangle[2].x, destinationTriangle[2].y);
+  targetContext.closePath();
+  targetContext.clip();
+  targetContext.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+  targetContext.drawImage(texture, 0, 0);
+  targetContext.restore();
+}
+
+function triangleTransform(sourceTriangle, destinationTriangle) {
+  const [source0, source1, source2] = sourceTriangle;
+  const [destination0, destination1, destination2] = destinationTriangle;
+  const denominator = source0.x * (source1.y - source2.y)
+    + source1.x * (source2.y - source0.y)
+    + source2.x * (source0.y - source1.y);
+
+  if (Math.abs(denominator) <= 0.0001) {
+    return null;
+  }
+
+  return {
+    a: (destination0.x * (source1.y - source2.y)
+      + destination1.x * (source2.y - source0.y)
+      + destination2.x * (source0.y - source1.y)) / denominator,
+    b: (destination0.y * (source1.y - source2.y)
+      + destination1.y * (source2.y - source0.y)
+      + destination2.y * (source0.y - source1.y)) / denominator,
+    c: (destination0.x * (source2.x - source1.x)
+      + destination1.x * (source0.x - source2.x)
+      + destination2.x * (source1.x - source0.x)) / denominator,
+    d: (destination0.y * (source2.x - source1.x)
+      + destination1.y * (source0.x - source2.x)
+      + destination2.y * (source1.x - source0.x)) / denominator,
+    e: (destination0.x * (source1.x * source2.y - source2.x * source1.y)
+      + destination1.x * (source2.x * source0.y - source0.x * source2.y)
+      + destination2.x * (source0.x * source1.y - source1.x * source0.y)) / denominator,
+    f: (destination0.y * (source1.x * source2.y - source2.x * source1.y)
+      + destination1.y * (source2.x * source0.y - source0.x * source2.y)
+      + destination2.y * (source0.x * source1.y - source1.x * source0.y)) / denominator
+  };
+}
+
+function buildBezierSkeleton(samples) {
+  const nodes = samples.map(sample => ({
+    x: samplePoint(sample).x,
+    y: samplePoint(sample).y,
+    width: sample.width,
+    section: sample.section
+  }));
+  const segments = [];
+
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    const previous = nodes[Math.max(0, index - 1)];
+    const current = nodes[index];
+    const next = nodes[index + 1];
+    const afterNext = nodes[Math.min(nodes.length - 1, index + 2)];
+    const control1 = {
+      x: current.x + (next.x - previous.x) * bezierTension / 6,
+      y: current.y + (next.y - previous.y) * bezierTension / 6
+    };
+    const control2 = {
+      x: next.x - (afterNext.x - current.x) * bezierTension / 6,
+      y: next.y - (afterNext.y - current.y) * bezierTension / 6
+    };
+
+    segments.push({
+      start: current,
+      control1,
+      control2,
+      end: next,
+      length: estimateCubicLength(current, control1, control2, next)
+    });
+  }
+
+  return segments;
+}
+
+function sampleBezierSkeleton(segments) {
+  const renderSamples = [];
+  let previousTangent = { x: 1, y: 0 };
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const steps = Math.max(2, Math.ceil(segment.length / skeletonSampleSpacing));
     const startStep = index === 0 ? 0 : 1;
 
     for (let step = startStep; step <= steps; step += 1) {
       const t = step / steps;
-      const point = centripetalCatmullRomPoint(samples, index, t);
+      const point = cubicBezierPoint(segment.start, segment.control1, segment.control2, segment.end, t);
+      const tangent = cubicBezierTangent(
+        segment.start,
+        segment.control1,
+        segment.control2,
+        segment.end,
+        t,
+        previousTangent
+      );
+      previousTangent = tangent;
       renderSamples.push({
         x: point.x,
         y: point.y,
-        width: interpolate(samples[index].width, samples[index + 1].width, t),
-        previousSection: samples[index].section,
-        currentSection: samples[index + 1].section,
+        tangent,
+        width: interpolate(segment.start.width, segment.end.width, t),
+        previousSection: segment.start.section,
+        currentSection: segment.end.section,
         sectionT: t
       });
     }
@@ -539,61 +689,54 @@ function buildRenderSamples(samples) {
   return renderSamples;
 }
 
-function centripetalCatmullRomPoint(samples, index, amount) {
-  const p0 = controlPoint(samples, index - 1);
-  const p1 = controlPoint(samples, index);
-  const p2 = controlPoint(samples, index + 1);
-  const p3 = controlPoint(samples, index + 2);
-  const t0 = 0;
-  const t1 = knot(t0, p0, p1);
-  const t2 = knot(t1, p1, p2);
-  const t3 = knot(t2, p2, p3);
-  const t = interpolate(t1, t2, amount);
+function estimateCubicLength(start, control1, control2, end) {
+  const steps = 12;
+  let length = 0;
+  let previous = start;
 
-  const a1 = interpolateKnot(p0, p1, t0, t1, t);
-  const a2 = interpolateKnot(p1, p2, t1, t2, t);
-  const a3 = interpolateKnot(p2, p3, t2, t3, t);
-  const b1 = interpolateKnot(a1, a2, t0, t2, t);
-  const b2 = interpolateKnot(a2, a3, t1, t3, t);
-  return interpolateKnot(b1, b2, t1, t2, t);
+  for (let step = 1; step <= steps; step += 1) {
+    const point = cubicBezierPoint(start, control1, control2, end, step / steps);
+    length += distance(previous, point);
+    previous = point;
+  }
+
+  return length;
 }
 
-function controlPoint(samples, index) {
-  if (index >= 0 && index < samples.length) {
-    return samplePoint(samples[index]);
-  }
+function cubicBezierPoint(start, control1, control2, end, t) {
+  const inverse = 1 - t;
+  const inverse2 = inverse * inverse;
+  const t2 = t * t;
 
-  if (index < 0) {
-    const first = samplePoint(samples[0]);
-    const second = samplePoint(samples[1] || samples[0]);
-    return {
-      x: first.x + (first.x - second.x),
-      y: first.y + (first.y - second.y)
-    };
-  }
-
-  const last = samplePoint(samples.at(-1));
-  const previous = samplePoint(samples.at(-2) || samples.at(-1));
   return {
-    x: last.x + (last.x - previous.x),
-    y: last.y + (last.y - previous.y)
+    x: inverse2 * inverse * start.x
+      + 3 * inverse2 * t * control1.x
+      + 3 * inverse * t2 * control2.x
+      + t2 * t * end.x,
+    y: inverse2 * inverse * start.y
+      + 3 * inverse2 * t * control1.y
+      + 3 * inverse * t2 * control2.y
+      + t2 * t * end.y
   };
 }
 
-function knot(previousKnot, previous, current) {
-  return previousKnot + Math.sqrt(Math.max(0.0001, distance(previous, current)));
-}
+function cubicBezierTangent(start, control1, control2, end, t, fallback) {
+  const inverse = 1 - t;
+  const x = 3 * inverse * inverse * (control1.x - start.x)
+    + 6 * inverse * t * (control2.x - control1.x)
+    + 3 * t * t * (end.x - control2.x);
+  const y = 3 * inverse * inverse * (control1.y - start.y)
+    + 6 * inverse * t * (control2.y - control1.y)
+    + 3 * t * t * (end.y - control2.y);
+  const length = Math.hypot(x, y);
 
-function interpolateKnot(start, end, startKnot, endKnot, amountKnot) {
-  const span = endKnot - startKnot;
-  if (span <= 0.0001) {
-    return { ...start };
+  if (length <= 0.0001) {
+    return fallback;
   }
 
-  const amount = (amountKnot - startKnot) / span;
   return {
-    x: interpolate(start.x, end.x, amount),
-    y: interpolate(start.y, end.y, amount)
+    x: x / length,
+    y: y / length
   };
 }
 
