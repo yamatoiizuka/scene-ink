@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import simd
 import Testing
 @testable import TrajectoryTypeFeature
@@ -57,12 +58,20 @@ import Testing
     #expect(abs(cameraLocalY.y) < 0.000_1)
 }
 
-@Test func rotaryBrushControlTreatsLeftAsZeroDegrees() async throws {
-    let left = RotaryBrushControl.normalizedAngleFromLeft(dx: -1, dy: 0)
-    let down = RotaryBrushControl.normalizedAngleFromLeft(dx: 0, dy: 1)
+@Test func brushDragConfigurationUsesDragVectorForWidthAndAngle() async throws {
+    let left = BrushDragConfiguration(
+        startPoint: CGPoint(x: 40, y: 50),
+        endPoint: CGPoint(x: 8, y: 50)
+    )
+    let down = BrushDragConfiguration(
+        startPoint: CGPoint(x: 40, y: 50),
+        endPoint: CGPoint(x: 40, y: 82)
+    )
 
-    #expect(abs(left) < 0.000_1)
-    #expect(abs(down - (.pi / 2)) < 0.000_1)
+    #expect(abs(left.width - 32) < 0.000_1)
+    #expect(abs(left.angleRadians) < 0.000_1)
+    #expect(abs(down.width - 32) < 0.000_1)
+    #expect(abs(down.angleRadians - (.pi / 2)) < 0.000_1)
 }
 
 @Test func frameCaptureMapsTapPointIntoCameraImageCoordinates() async throws {
@@ -132,4 +141,42 @@ import Testing
     #expect(recorder.strokes.count == 1)
     #expect(recorder.activeSamples.isEmpty)
     #expect(recorder.displayStrokes.map(\.id) == recorder.strokes.map(\.id))
+}
+
+@MainActor
+@Test func undoLastStrokeRemovesMostRecentCommittedStroke() async throws {
+    let recorder = ScreenStrokeRecorder()
+    let viewportSize = CGSize(width: 400, height: 800)
+    var translated = matrix_identity_float4x4
+    translated.columns.3 = SIMD4<Float>(0.02, 0.02, 0, 1)
+
+    for index in 0..<2 {
+        recorder.begin(
+            at: CGPoint(x: 120, y: 300),
+            in: viewportSize,
+            pose: CameraPose(transform: matrix_identity_float4x4, timestamp: TimeInterval(index * 10))
+        )
+        recorder.record(
+            pose: CameraPose(transform: matrix_identity_float4x4, timestamp: TimeInterval(index * 10 + 1)),
+            in: viewportSize,
+            brushWidth: 12,
+            brushAngleRadians: 0
+        )
+        recorder.record(
+            pose: CameraPose(transform: translated, timestamp: TimeInterval(index * 10 + 2)),
+            in: viewportSize,
+            brushWidth: 12,
+            brushAngleRadians: 0
+        )
+        recorder.end()
+    }
+
+    let firstStrokeID = recorder.strokes[0].id
+    let secondStrokeID = recorder.strokes[1].id
+
+    recorder.undoLastStroke()
+
+    #expect(recorder.strokes.count == 1)
+    #expect(recorder.strokes[0].id == firstStrokeID)
+    #expect(recorder.strokes.contains { $0.id == secondStrokeID } == false)
 }

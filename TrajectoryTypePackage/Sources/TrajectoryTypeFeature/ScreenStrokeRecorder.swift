@@ -79,6 +79,14 @@ public final class ScreenStrokeRecorder {
         isRecording = false
     }
 
+    public func undoLastStroke() {
+        guard !strokes.isEmpty else {
+            return
+        }
+
+        strokes.removeLast()
+    }
+
     public func record(
         pose: CameraPose,
         in viewportSize: CGSize,

@@ -5,8 +5,9 @@ import SwiftUI
 public struct ContentView: View {
     @State private var sessionManager = ARSessionManager()
     @State private var strokeRecorder = ScreenStrokeRecorder()
-    @State private var brushWidthPixels = 34
+    @State private var brushWidthPoints: CGFloat = 34
     @State private var brushAngleRadians: CGFloat = 0
+    @State private var pendingBrushConfiguration: BrushDragConfiguration?
 
     public var body: some View {
         GeometryReader { proxy in
@@ -23,15 +24,40 @@ public struct ContentView: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
-                StrokeTouchSurface { point, size in
-                    if strokeRecorder.isRecording {
-                        strokeRecorder.end()
-                    } else {
-                        sessionManager.brushAngleRadians = brushAngleRadians
-                        sessionManager.setBrushSamplePoint(point, in: size)
-                        strokeRecorder.begin(at: point, in: size, pose: sessionManager.latestPose)
-                    }
+                if let pendingBrushConfiguration, !strokeRecorder.isRecording {
+                    BrushDragGuideView(configuration: pendingBrushConfiguration)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
+
+                StrokeTouchSurface(
+                    onDragChanged: { configuration, size in
+                        guard !strokeRecorder.isRecording else {
+                            return
+                        }
+
+                        pendingBrushConfiguration = configuration
+                        applyBrushConfiguration(configuration, in: size)
+                    },
+                    onDragEnded: { configuration, size in
+                        pendingBrushConfiguration = nil
+
+                        if strokeRecorder.isRecording {
+                            strokeRecorder.end()
+                            return
+                        }
+
+                        guard configuration.isDrawable else {
+                            return
+                        }
+
+                        applyBrushConfiguration(configuration, in: size)
+                        strokeRecorder.begin(at: configuration.startPoint, in: size, pose: sessionManager.latestPose)
+                    },
+                    onDragCancelled: {
+                        pendingBrushConfiguration = nil
+                    }
+                )
                 .ignoresSafeArea()
 
                 controls
@@ -53,7 +79,7 @@ public struct ContentView: View {
                 strokeRecorder.record(
                     pose: pose,
                     in: proxy.size,
-                    brushWidth: CGFloat(brushWidthPixels),
+                    brushWidth: brushWidthPoints,
                     brushAngleRadians: brushAngleRadians
                 ) {
                     sessionManager.latestBrushSection
@@ -75,12 +101,22 @@ public struct ContentView: View {
     public init() {}
 
     private var controls: some View {
-        HStack(alignment: .bottom) {
-            RotaryBrushControl(widthPixels: $brushWidthPixels, angleRadians: $brushAngleRadians)
-
+        HStack {
             Spacer()
 
-            HStack(spacing: 12) {
+            VStack(spacing: 10) {
+                Button {
+                    strokeRecorder.undoLastStroke()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.black.opacity(0.72))
+                .disabled(strokeRecorder.strokes.isEmpty)
+                .accessibilityLabel("Undo last stroke")
+
                 Button {
                     strokeRecorder.clear()
                 } label: {
@@ -106,7 +142,7 @@ public struct ContentView: View {
             Text("strokes: \(strokeRecorder.strokes.count)")
             Text("stroke samples: \(strokeRecorder.sampleCount)")
             Text("section samples: \(strokeRecorder.brushSectionSampleCount)")
-            Text("brush: \(brushWidthPixels)px \(Int(RotaryBrushControl.degrees(from: brushAngleRadians).rounded()))°")
+            Text("brush: \(Int(brushWidthPoints.rounded()))pt \(Int(BrushDragConfiguration.degrees(from: brushAngleRadians).rounded()))°")
         }
         .font(.system(.caption, design: .monospaced))
         .foregroundStyle(.white)
@@ -114,5 +150,12 @@ public struct ContentView: View {
         .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("AR tracking debug information")
+    }
+
+    private func applyBrushConfiguration(_ configuration: BrushDragConfiguration, in size: CGSize) {
+        brushWidthPoints = max(configuration.width, BrushDragConfiguration.minimumDrawableWidth)
+        brushAngleRadians = configuration.angleRadians
+        sessionManager.brushAngleRadians = configuration.angleRadians
+        sessionManager.setBrushSamplePoint(configuration.startPoint, in: size)
     }
 }
