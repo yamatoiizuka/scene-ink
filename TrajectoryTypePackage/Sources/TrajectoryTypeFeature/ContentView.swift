@@ -86,8 +86,11 @@ public struct ContentView: View {
                     pose: pose,
                     in: proxy.size,
                     brushWidth: brushWidthPoints
-                ) { brushAngleRadians in
-                    sessionManager.makeBrushSection(angleRadians: brushAngleRadians)
+                ) { brushAngleRadians, normalizedSamplePoint in
+                    sessionManager.makeBrushSection(
+                        angleRadians: brushAngleRadians,
+                        normalizedPreviewPoint: normalizedSamplePoint
+                    )
                 }
                 brushAngleRadians = strokeRecorder.currentBrushAngleRadians
                 sessionManager.brushAngleRadians = strokeRecorder.currentBrushAngleRadians

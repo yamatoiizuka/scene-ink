@@ -79,7 +79,10 @@ public final class ARSessionManager: NSObject {
         hasStrokeSourceImage = false
     }
 
-    public func makeBrushSection(angleRadians: CGFloat) -> CGImage? {
+    public func makeBrushSection(
+        angleRadians: CGFloat,
+        normalizedPreviewPoint: CGPoint? = nil
+    ) -> CGImage? {
         guard let strokeSourceImage else {
             return nil
         }
@@ -87,7 +90,7 @@ public final class ARSessionManager: NSObject {
         return frameCapture.makeBrushSection(
             from: strokeSourceImage,
             angleRadians: angleRadians,
-            normalizedPreviewPoint: normalizedBrushSamplePoint,
+            normalizedPreviewPoint: normalizedPreviewPoint ?? normalizedBrushSamplePoint,
             previewSize: brushPreviewSize
         )
     }

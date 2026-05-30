@@ -97,6 +97,44 @@ import Testing
     #expect(abs(recorder.activeSamples[1].brushAngleRadians - (3 * .pi / 4)) < 0.000_1)
 }
 
+@MainActor
+@Test func screenStrokeRecorderMovesBrushSamplePointWithCameraTranslation() async throws {
+    let recorder = ScreenStrokeRecorder()
+    let viewportSize = CGSize(width: 400, height: 800)
+    var translated = matrix_identity_float4x4
+    translated.columns.3 = SIMD4<Float>(0.05, 0.03, 0, 1)
+    var samplePoints: [CGPoint] = []
+
+    recorder.begin(
+        at: CGPoint(x: 200, y: 400),
+        in: viewportSize,
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 0),
+        brushAngleRadians: 0
+    )
+    recorder.record(
+        pose: CameraPose(transform: matrix_identity_float4x4, timestamp: 1),
+        in: viewportSize,
+        brushWidth: 12
+    ) { _, normalizedSamplePoint in
+        samplePoints.append(normalizedSamplePoint)
+        return nil
+    }
+    recorder.record(
+        pose: CameraPose(transform: translated, timestamp: 2),
+        in: viewportSize,
+        brushWidth: 12
+    ) { _, normalizedSamplePoint in
+        samplePoints.append(normalizedSamplePoint)
+        return nil
+    }
+
+    #expect(samplePoints.count == 2)
+    #expect(abs(samplePoints[0].x - 0.5) < 0.000_1)
+    #expect(abs(samplePoints[0].y - 0.5) < 0.000_1)
+    #expect(samplePoints[1].x > samplePoints[0].x)
+    #expect(samplePoints[1].y > samplePoints[0].y)
+}
+
 @Test func deviceAngleDeltaIgnoresOutOfScreenPlaneTilt() async throws {
     let tiltedAroundY = transform(rotatedAroundY: .pi * 0.75)
     let tiltedAroundX = transform(rotatedAroundX: -.pi * 0.75)

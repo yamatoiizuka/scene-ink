@@ -106,7 +106,7 @@ public final class ScreenStrokeRecorder {
         pose: CameraPose,
         in viewportSize: CGSize,
         brushWidth: CGFloat,
-        brushSectionProvider: (CGFloat) -> CGImage? = { _ in nil }
+        brushSectionProvider: (CGFloat, CGPoint) -> CGImage? = { _, _ in nil }
     ) {
         guard isRecording, viewportSize.width > 0, viewportSize.height > 0 else {
             return
@@ -139,6 +139,7 @@ public final class ScreenStrokeRecorder {
             around: startPoint,
             angleRadians: deviceAngleDelta
         )
+        let normalizedSamplePoint = Self.normalizedPoint(for: point, in: viewportSize)
 
         if shouldAppend(point: point, brushWidth: brushWidth, brushAngleRadians: brushAngleRadians) {
             append(
@@ -147,7 +148,7 @@ public final class ScreenStrokeRecorder {
                 brushAngleRadians: brushAngleRadians,
                 timestamp: pose.timestamp,
                 viewportSize: viewportSize,
-                brushSectionImage: brushSectionProvider(brushAngleRadians)
+                brushSectionImage: brushSectionProvider(brushAngleRadians, normalizedSamplePoint)
             )
         }
     }
@@ -190,10 +191,7 @@ public final class ScreenStrokeRecorder {
         viewportSize: CGSize,
         brushSectionImage: CGImage?
     ) {
-        let normalizedPoint = CGPoint(
-            x: point.x / viewportSize.width,
-            y: point.y / viewportSize.height
-        )
+        let normalizedPoint = Self.normalizedPoint(for: point, in: viewportSize)
 
         activeSamples.append(
             ScreenStrokeSample(
@@ -212,6 +210,13 @@ public final class ScreenStrokeRecorder {
         lastRenderedPoint = point
         lastBrushAngleRadians = brushAngleRadians
         lastWidth = brushWidth
+    }
+
+    nonisolated public static func normalizedPoint(for point: CGPoint, in viewportSize: CGSize) -> CGPoint {
+        CGPoint(
+            x: point.x / viewportSize.width,
+            y: point.y / viewportSize.height
+        )
     }
 
     nonisolated public static func relativeTranslation(
