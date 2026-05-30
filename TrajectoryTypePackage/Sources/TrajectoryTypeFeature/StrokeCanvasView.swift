@@ -24,6 +24,10 @@ public struct StrokeCanvasView: UIViewRepresentable {
 }
 
 public final class StrokeCompositorUIView: UIView {
+    private let sliceSpacing: CGFloat = 0.75
+    private let sliceOverlap: CGFloat = 0.35
+    private let maximumSlicesPerSegment = 160
+
     public var strokes: [ScreenStroke] = [] {
         didSet {
             setNeedsDisplay()
@@ -41,9 +45,16 @@ public final class StrokeCompositorUIView: UIView {
     }
 
     private func drawStroke(_ stroke: ScreenStroke, in context: CGContext) {
+        context.saveGState()
+        context.addPath(makeRibbonPath(for: stroke.samples, in: bounds.size).cgPath)
+        context.clip()
+        context.interpolationQuality = .high
+
         for index in stroke.samples.indices.dropFirst() {
             drawSegment(from: stroke.samples[index - 1], to: stroke.samples[index], in: context)
         }
+
+        context.restoreGState()
     }
 
     private func drawSegment(
@@ -62,18 +73,58 @@ public final class StrokeCompositorUIView: UIView {
         }
 
         let tangent = CGVector(dx: dx / length, dy: dy / length)
-        let cross = averageCrossVector(from: previous, to: current)
-        let width = (previous.width + current.width) / 2
-        let center = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-        let segmentPath = makeSegmentPath(from: previous, to: current)
+        let sliceCount = min(maximumSlicesPerSegment, max(1, Int(ceil(length / sliceSpacing))))
+        let stepLength = length / CGFloat(sliceCount)
+        let sliceThickness = stepLength + sliceOverlap
+        let previousImage = previous.brushSectionImage.map(UIImage.init(cgImage:))
+        let currentImage = current.brushSectionImage.map(UIImage.init(cgImage:))
+
+        guard previousImage != nil || currentImage != nil else {
+            return
+        }
+
+        for index in 0...sliceCount {
+            let t = CGFloat(index) / CGFloat(sliceCount)
+            let center = CGPoint(
+                x: start.x + (dx * t),
+                y: start.y + (dy * t)
+            )
+            let width = interpolate(previous.width, current.width, t: t)
+            let brushAngle = interpolateAngle(previous.brushAngleRadians, current.brushAngleRadians, t: t)
+            let cross = FrameCapture.crossVector(forBrushAngle: brushAngle)
+
+            drawSlice(
+                center: center,
+                tangent: tangent,
+                cross: cross,
+                thickness: sliceThickness,
+                width: width,
+                t: t,
+                previousImage: previousImage,
+                currentImage: currentImage,
+                in: context
+            )
+        }
+    }
+
+    private func drawSlice(
+        center: CGPoint,
+        tangent: CGVector,
+        cross: CGVector,
+        thickness: CGFloat,
+        width: CGFloat,
+        t: CGFloat,
+        previousImage: UIImage?,
+        currentImage: UIImage?,
+        in context: CGContext
+    ) {
+        let destination = CGRect(x: -0.5, y: -0.5, width: 1, height: 1)
 
         context.saveGState()
-        context.addPath(segmentPath.cgPath)
-        context.clip()
         context.concatenate(
             CGAffineTransform(
-                a: tangent.dx * length,
-                b: tangent.dy * length,
+                a: tangent.dx * thickness,
+                b: tangent.dy * thickness,
                 c: cross.dx * width,
                 d: cross.dy * width,
                 tx: center.x,
@@ -81,29 +132,19 @@ public final class StrokeCompositorUIView: UIView {
             )
         )
 
-        let destination = CGRect(x: -0.5, y: -0.5, width: 1, height: 1)
-
-        guard let brushSectionImage = current.brushSectionImage ?? previous.brushSectionImage else {
-            context.restoreGState()
-            return
+        switch (previousImage, currentImage) {
+        case let (previousImage?, currentImage?):
+            previousImage.draw(in: destination, blendMode: .normal, alpha: 1)
+            currentImage.draw(in: destination, blendMode: .normal, alpha: min(1, t))
+        case let (previousImage?, nil):
+            previousImage.draw(in: destination, blendMode: .normal, alpha: 1)
+        case let (nil, currentImage?):
+            currentImage.draw(in: destination, blendMode: .normal, alpha: 1)
+        case (nil, nil):
+            break
         }
 
-        UIImage(cgImage: brushSectionImage).draw(in: destination, blendMode: .normal, alpha: 0.98)
         context.restoreGState()
-    }
-
-    private func averageCrossVector(from previous: ScreenStrokeSample, to current: ScreenStrokeSample) -> CGVector {
-        let previousVector = FrameCapture.crossVector(forBrushAngle: previous.brushAngleRadians)
-        let currentVector = FrameCapture.crossVector(forBrushAngle: current.brushAngleRadians)
-        let dx = previousVector.dx + currentVector.dx
-        let dy = previousVector.dy + currentVector.dy
-        let length = sqrt((dx * dx) + (dy * dy))
-
-        guard length > 0.001 else {
-            return currentVector
-        }
-
-        return CGVector(dx: dx / length, dy: dy / length)
     }
 
     private func makeRibbonPath(for samples: [ScreenStrokeSample], in size: CGSize) -> UIBezierPath {
@@ -138,32 +179,12 @@ public final class StrokeCompositorUIView: UIView {
         return path
     }
 
-    private func makeSegmentPath(
-        from previous: ScreenStrokeSample,
-        to current: ScreenStrokeSample
-    ) -> UIBezierPath {
-        let previousEdges = edgePoints(for: previous)
-        let currentEdges = edgePoints(for: current)
-        let path = UIBezierPath()
-
-        path.move(to: previousEdges.left)
-        path.addLine(to: currentEdges.left)
-        path.addLine(to: currentEdges.right)
-        path.addLine(to: previousEdges.right)
-        path.close()
-
-        return path
+    private func interpolate(_ start: CGFloat, _ end: CGFloat, t: CGFloat) -> CGFloat {
+        start + ((end - start) * t)
     }
 
-    private func edgePoints(for sample: ScreenStrokeSample) -> (left: CGPoint, right: CGPoint) {
-        let point = sample.point(in: bounds.size)
-        let direction = FrameCapture.crossVector(forBrushAngle: sample.brushAngleRadians)
-        let halfWidth = sample.width / 2
-        let offset = CGVector(dx: direction.dx * halfWidth, dy: direction.dy * halfWidth)
-
-        return (
-            left: CGPoint(x: point.x + offset.dx, y: point.y + offset.dy),
-            right: CGPoint(x: point.x - offset.dx, y: point.y - offset.dy)
-        )
+    private func interpolateAngle(_ start: CGFloat, _ end: CGFloat, t: CGFloat) -> CGFloat {
+        let delta = atan2(sin(end - start), cos(end - start))
+        return start + (delta * t)
     }
 }
