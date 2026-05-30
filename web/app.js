@@ -1,5 +1,6 @@
 const video = document.querySelector("#camera");
 const canvas = document.querySelector("#paint");
+const stage = document.querySelector(".stage");
 const cameraButton = document.querySelector("#cameraButton");
 const undoButton = document.querySelector("#undoButton");
 const clearButton = document.querySelector("#clearButton");
@@ -65,7 +66,7 @@ function beginStroke(event) {
   }
 
   const point = pointerPoint(event);
-  isDrawing = true;
+  setDrawingState(true);
   activeSamples = [];
   canvas.setPointerCapture(event.pointerId);
   appendSample(point, performance.now(), true);
@@ -92,7 +93,7 @@ function endStroke(event) {
     strokes.push(activeSamples);
   }
   activeSamples = [];
-  isDrawing = false;
+  setDrawingState(false);
   redraw();
 }
 
@@ -101,8 +102,13 @@ function cancelStroke() {
     strokes.push(activeSamples);
   }
   activeSamples = [];
-  isDrawing = false;
+  setDrawingState(false);
   redraw();
+}
+
+function setDrawingState(nextIsDrawing) {
+  isDrawing = nextIsDrawing;
+  stage.classList.toggle("is-drawing", nextIsDrawing);
 }
 
 function appendSample(point, timestamp, force) {

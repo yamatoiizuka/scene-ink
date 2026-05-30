@@ -41,6 +41,11 @@ input {
 #camera {
   object-fit: cover;
   background: #050505;
+  transition: filter 160ms ease, opacity 160ms ease;
+}
+
+.stage.is-drawing #camera {
+  filter: brightness(0.28) saturate(0.82);
 }
 
 #paint {

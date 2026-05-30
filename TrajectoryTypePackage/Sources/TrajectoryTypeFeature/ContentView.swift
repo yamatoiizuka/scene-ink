@@ -14,6 +14,12 @@ public struct ContentView: View {
                 CameraPreviewContainer(session: cameraManager.session)
                     .ignoresSafeArea()
 
+                Color.black
+                    .ignoresSafeArea()
+                    .opacity(strokeRecorder.isRecording ? 0.68 : 0)
+                    .animation(.easeOut(duration: 0.16), value: strokeRecorder.isRecording)
+                    .allowsHitTesting(false)
+
                 StrokeCanvasView(strokes: strokeRecorder.displayStrokes)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
