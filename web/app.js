@@ -1,13 +1,18 @@
 const video = document.querySelector("#camera");
 const canvas = document.querySelector("#paint");
+const freezeCanvas = document.querySelector("#freezeFrame");
 const stage = document.querySelector(".stage");
+const viewport = document.querySelector(".viewport");
 const cameraButton = document.querySelector("#cameraButton");
 const undoButton = document.querySelector("#undoButton");
 const clearButton = document.querySelector("#clearButton");
+const saveButton = document.querySelector("#saveButton");
 const widthControl = document.querySelector("#widthControl");
+const sampleWidthControl = document.querySelector("#sampleWidthControl");
 const statusOutput = document.querySelector("#status");
 
 const context = canvas.getContext("2d", { alpha: true, desynchronized: true });
+const freezeContext = freezeCanvas.getContext("2d", { alpha: false });
 const committedCanvas = document.createElement("canvas");
 const committedContext = committedCanvas.getContext("2d", { alpha: true, desynchronized: true });
 const textureCanvas = document.createElement("canvas");
@@ -17,13 +22,24 @@ const maskContext = maskCanvas.getContext("2d", { alpha: true });
 const strokeTextureCanvas = document.createElement("canvas");
 const strokeTextureContext = strokeTextureCanvas.getContext("2d", { alpha: true });
 
-const sectionResolution = 128;
-const sectionSampleWidth = 2;
-const maximumRibbonSegmentLength = 8;
+const sectionResolution = 256;
+const sectionSampleWidth = 4;
+const maximumRibbonSegmentLength = 6;
 const tangentSmoothing = 0.58;
 const textureColumnBleed = 0.18;
 const ribbonOverdraw = 0.75;
 const triangleClipBleed = 0.9;
+const maximumStrokeTextureScale = 2.5;
+const minimumStrokeTextureScale = 1;
+const maximumStrokeTextureWidth = 8192;
+const portraitSaveWidth = 1200;
+const portraitSaveHeight = 1800;
+const landscapeSaveWidth = 1800;
+const landscapeSaveHeight = 1200;
+const saveMimeType = "image/jpeg";
+const saveFileExtension = "jpg";
+const saveImageQuality = 0.92;
+const shareSheetDelayMs = 1000;
 const minimumPointDistance = 4.5;
 const minimumAngleDelta = Math.PI / 90;
 const temporalJoinRadius = 5;
@@ -41,12 +57,12 @@ let redrawFrame = 0;
 
 function resizeCanvas() {
   dpr = window.devicePixelRatio || 1;
-  const width = window.innerWidth;
-  const height = window.innerHeight;
+  const { width, height } = viewSize();
   canvas.width = Math.max(1, Math.round(width * dpr));
   canvas.height = Math.max(1, Math.round(height * dpr));
   canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
+  resizeWorkCanvas(freezeCanvas, freezeContext, width, height);
   resizeWorkCanvas(committedCanvas, committedContext, width, height);
   resizeWorkCanvas(textureCanvas, textureContext, width, height);
   resizeWorkCanvas(maskCanvas, maskContext, width, height);
@@ -58,30 +74,59 @@ function resizeCanvas() {
 function resizeWorkCanvas(targetCanvas, targetContext, width, height) {
   targetCanvas.width = Math.max(1, Math.round(width * dpr));
   targetCanvas.height = Math.max(1, Math.round(height * dpr));
+  targetCanvas.style.width = `${width}px`;
+  targetCanvas.style.height = `${height}px`;
   targetContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function viewSize() {
+  const rect = viewport.getBoundingClientRect();
+  return {
+    width: Math.max(1, rect.width || window.innerWidth),
+    height: Math.max(1, rect.height || window.innerHeight)
+  };
+}
+
+function isLandscapeView() {
+  const { width, height } = viewSize();
+  return width > height;
 }
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     statusOutput.value = "Camera API is unavailable in this browser.";
+    updateCameraButtonVisibility();
     return;
   }
 
+  cameraButton.disabled = true;
+  updateCameraButtonVisibility();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
       }
     });
     video.srcObject = stream;
+    for (const track of stream.getVideoTracks()) {
+      track.addEventListener("ended", updateCameraButtonVisibility);
+    }
     await video.play();
     statusOutput.value = "";
+    updateCameraButtonVisibility();
   } catch (error) {
     statusOutput.value = error instanceof Error ? error.message : "Camera permission failed.";
+    updateCameraButtonVisibility();
+  } finally {
+    cameraButton.disabled = false;
   }
+}
+
+function updateCameraButtonVisibility() {
+  cameraButton.hidden = isCameraRunning();
 }
 
 function beginStroke(event) {
@@ -144,6 +189,19 @@ function setDrawingState(nextIsDrawing) {
   stage.classList.toggle("is-drawing", nextIsDrawing);
 }
 
+function discardActiveStroke() {
+  activeSamples = [];
+  setDrawingState(false);
+}
+
+function stopToolPointerEvent(event) {
+  event.stopPropagation();
+}
+
+function preventBrowserGesture(event) {
+  event.preventDefault();
+}
+
 function coalescedPointerEvents(event) {
   if (typeof event.getCoalescedEvents !== "function") {
     return [event];
@@ -155,24 +213,27 @@ function coalescedPointerEvents(event) {
 
 function appendSample(point, timestamp, force) {
   const brushWidth = Number(widthControl.value);
+  const sampleWidth = Number(sampleWidthControl.value);
+  const { width: viewWidth, height: viewHeight } = viewSize();
   const previous = activeSamples.at(-1);
   const angle = previous ? brushAngle(previous, point, currentBrushAngle) : currentBrushAngle;
   currentBrushAngle = angle;
 
-  if (!force && previous && !shouldAppend(previous, point, brushWidth, angle)) {
+  if (!force && previous && !shouldAppend(previous, point, brushWidth, sampleWidth, angle)) {
     return;
   }
 
-  const section = captureSection(point, angle, brushWidth);
+  const section = captureSection(point, angle, sampleWidth);
   if (previous && canJoinTemporalSample(previous, point, brushWidth)) {
-    joinTemporalSample(previous, point, brushWidth, angle, timestamp, section);
+    joinTemporalSample(previous, point, brushWidth, sampleWidth, angle, timestamp, section);
     return;
   }
 
   activeSamples.push({
-    nx: point.x / window.innerWidth,
-    ny: point.y / window.innerHeight,
+    nx: point.x / viewWidth,
+    ny: point.y / viewHeight,
     width: brushWidth,
+    sampleWidth,
     angle,
     timestamp,
     joinCount: 1,
@@ -180,14 +241,18 @@ function appendSample(point, timestamp, force) {
   });
 }
 
-function shouldAppend(previous, point, width, angle) {
+function shouldAppend(previous, point, width, sampleWidth, angle) {
   const previousPoint = samplePoint(previous);
   const dx = point.x - previousPoint.x;
   const dy = point.y - previousPoint.y;
   const distance = Math.hypot(dx, dy);
   const widthDelta = Math.abs(width - previous.width);
+  const sampleWidthDelta = Math.abs(sampleWidth - (previous.sampleWidth || sampleWidth));
   const angleDelta = angularDistance(angle, previous.angle);
-  return distance >= minimumPointDistance || widthDelta >= 1 || angleDelta >= minimumAngleDelta;
+  return distance >= minimumPointDistance
+    || widthDelta >= 1
+    || sampleWidthDelta >= 1
+    || angleDelta >= minimumAngleDelta;
 }
 
 function canJoinTemporalSample(previous, point, width) {
@@ -199,13 +264,15 @@ function canJoinTemporalSample(previous, point, width) {
   return distance(previousPoint, point) <= radius;
 }
 
-function joinTemporalSample(previous, point, width, angle, timestamp, section) {
+function joinTemporalSample(previous, point, width, sampleWidth, angle, timestamp, section) {
   const joinCount = (previous.joinCount || 1) + 1;
   const weight = 1 / joinCount;
+  const { width: viewWidth, height: viewHeight } = viewSize();
 
-  previous.nx = interpolate(previous.nx, point.x / window.innerWidth, weight);
-  previous.ny = interpolate(previous.ny, point.y / window.innerHeight, weight);
+  previous.nx = interpolate(previous.nx, point.x / viewWidth, weight);
+  previous.ny = interpolate(previous.ny, point.y / viewHeight, weight);
   previous.width = interpolate(previous.width, width, weight);
+  previous.sampleWidth = interpolate(previous.sampleWidth || sampleWidth, sampleWidth, weight);
   previous.angle = angle;
   previous.timestamp = timestamp;
   previous.section = joinTemporalSections(previous.section, section, joinCount);
@@ -277,7 +344,7 @@ function joinTemporalSections(previousSection, nextSection, joinCount) {
   return joinedCanvas;
 }
 
-function captureSection(point, angle, brushWidth) {
+function captureSection(point, angle, sampleWidth) {
   const mapping = screenToVideo(point);
   if (!mapping) {
     return null;
@@ -285,7 +352,7 @@ function captureSection(point, angle, brushWidth) {
 
   const cross = crossVector(angle);
   const tangent = { x: cross.y, y: -cross.x };
-  const lineLength = Math.max(2, brushWidth * mapping.scale);
+  const lineLength = Math.max(2, sampleWidth * mapping.scale);
   const lineScale = sectionResolution / lineLength;
   const sectionCanvas = document.createElement("canvas");
   sectionCanvas.width = sectionSampleWidth;
@@ -307,8 +374,7 @@ function captureSection(point, angle, brushWidth) {
 }
 
 function redraw() {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
+  const { width, height } = viewSize();
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, width, height);
   context.imageSmoothingEnabled = true;
@@ -337,6 +403,178 @@ function scheduleRedraw() {
     redrawFrame = 0;
     redraw();
   });
+}
+
+async function saveComposition() {
+  if (!isCameraReady()) {
+    statusOutput.value = "Camera is not ready.";
+    return;
+  }
+
+  redraw();
+  saveButton.disabled = true;
+  try {
+    const exportCanvas = renderSaveCanvas();
+    showFrozenComposition(exportCanvas);
+    pauseCameraPreview();
+    const blob = await canvasToBlob(exportCanvas, saveMimeType, saveImageQuality);
+    const filename = `scene-ink-${timestampForFileName()}.${saveFileExtension}`;
+    await wait(shareSheetDelayMs);
+    await deliverSavedImage(blob, filename);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      statusOutput.value = error instanceof Error ? error.message : "Save failed.";
+    }
+  } finally {
+    hideFrozenComposition();
+    await resumeCameraPreview();
+    saveButton.disabled = false;
+  }
+}
+
+function renderSaveCanvas() {
+  const { width, height } = saveOutputSize();
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+  const exportContext = exportCanvas.getContext("2d", { alpha: false });
+
+  exportContext.imageSmoothingEnabled = true;
+  exportContext.imageSmoothingQuality = "high";
+  exportContext.fillStyle = "#050505";
+  exportContext.fillRect(0, 0, width, height);
+  drawVideoFrame(exportContext, width, height);
+  drawPaintFrame(exportContext, width, height);
+  return exportCanvas;
+}
+
+function saveOutputSize() {
+  if (isLandscapeView()) {
+    return {
+      width: landscapeSaveWidth,
+      height: landscapeSaveHeight
+    };
+  }
+
+  return {
+    width: portraitSaveWidth,
+    height: portraitSaveHeight
+  };
+}
+
+function drawVideoFrame(targetContext, targetWidth, targetHeight) {
+  const mapping = videoObjectFitCoverMapping();
+  if (!mapping) {
+    return;
+  }
+
+  targetContext.drawImage(
+    video,
+    mapping.offsetX,
+    mapping.offsetY,
+    mapping.viewWidth / mapping.scale,
+    mapping.viewHeight / mapping.scale,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+}
+
+function drawPaintFrame(targetContext, targetWidth, targetHeight) {
+  targetContext.drawImage(
+    canvas,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+}
+
+function showFrozenComposition(exportCanvas) {
+  const { width, height } = viewSize();
+  freezeCanvas.hidden = false;
+  freezeContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+  freezeContext.clearRect(0, 0, width, height);
+  freezeContext.imageSmoothingEnabled = true;
+  freezeContext.imageSmoothingQuality = "high";
+  freezeContext.drawImage(exportCanvas, 0, 0, width, height);
+}
+
+function hideFrozenComposition() {
+  freezeCanvas.hidden = true;
+}
+
+function pauseCameraPreview() {
+  video.pause();
+}
+
+async function resumeCameraPreview() {
+  if (!video.srcObject) {
+    updateCameraButtonVisibility();
+    return;
+  }
+
+  try {
+    await video.play();
+    statusOutput.value = "";
+  } catch (error) {
+    statusOutput.value = error instanceof Error ? error.message : "Camera resume failed.";
+  } finally {
+    updateCameraButtonVisibility();
+  }
+}
+
+function wait(ms) {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function canvasToBlob(sourceCanvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    sourceCanvas.toBlob(blob => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error("Could not encode image."));
+    }, type, quality);
+  });
+}
+
+async function deliverSavedImage(blob, filename) {
+  const file = new File([blob], filename, {
+    type: blob.type || saveMimeType,
+    lastModified: Date.now()
+  });
+  if (navigator.canShare?.({ files: [file] })) {
+    await navigator.share({
+      files: [file],
+      title: filename,
+      text: filename
+    });
+    statusOutput.value = "";
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  statusOutput.value = "";
+}
+
+function timestampForFileName() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 function ensureCommittedStrokes() {
@@ -373,21 +611,21 @@ function drawStrokeTo(samples, destinationContext) {
     return;
   }
 
-  const renderSamples = buildRibbonSamples(samples);
-  if (renderSamples.length < 2) {
+  const ribbon = buildRibbon(samples);
+  if (ribbon.renderSamples.length < 2) {
     return;
   }
 
-  const strokeTexture = buildStrokeTexture(renderSamples);
-  drawTexturedStroke(renderSamples, strokeTexture);
-  maskTexturedStroke(renderSamples);
+  const strokeTexture = buildStrokeTexture(ribbon.nodes, ribbon.length, ribbon.textureScale);
+  drawTexturedStroke(ribbon.renderSamples, strokeTexture, ribbon.textureScale);
+  maskTexturedStroke(ribbon.renderSamples);
   destinationContext.save();
   destinationContext.setTransform(1, 0, 0, 1, 0, 0);
   destinationContext.drawImage(textureCanvas, 0, 0);
   destinationContext.restore();
 }
 
-function drawTexturedStroke(renderSamples, strokeTexture) {
+function drawTexturedStroke(renderSamples, strokeTexture, textureScale) {
   clearWorkCanvas(textureContext);
   textureContext.imageSmoothingEnabled = true;
   textureContext.imageSmoothingQuality = "high";
@@ -402,8 +640,8 @@ function drawTexturedStroke(renderSamples, strokeTexture) {
     drawRibbonSegment(
       textureContext,
       strokeTexture,
-      index - 1,
-      index,
+      previous.u * textureScale,
+      current.u * textureScale,
       ribbonFrame(previous),
       ribbonFrame(current)
     );
@@ -468,7 +706,14 @@ function traceSmoothPath(targetContext, points, startIndex, endIndex) {
   targetContext.moveTo(first.x, first.y);
 
   for (let index = startIndex + 1; index < endIndex; index += 1) {
-    targetContext.lineTo(points[index].x, points[index].y);
+    const current = points[index];
+    const next = points[index + 1];
+    targetContext.quadraticCurveTo(
+      current.x,
+      current.y,
+      (current.x + next.x) / 2,
+      (current.y + next.y) / 2
+    );
   }
 
   const last = points[endIndex];
@@ -482,53 +727,69 @@ function clearWorkCanvas(targetContext) {
   targetContext.restore();
 }
 
-function buildStrokeTexture(renderSamples) {
-  strokeTextureCanvas.width = Math.max(2, renderSamples.length);
+function buildStrokeTexture(nodes, length, textureScale) {
+  strokeTextureCanvas.width = Math.max(2, Math.ceil(length * textureScale) + 1);
   strokeTextureCanvas.height = sectionResolution;
   strokeTextureContext.setTransform(1, 0, 0, 1, 0, 0);
   strokeTextureContext.clearRect(0, 0, strokeTextureCanvas.width, strokeTextureCanvas.height);
   strokeTextureContext.imageSmoothingEnabled = true;
   strokeTextureContext.imageSmoothingQuality = "high";
 
-  for (let column = 0; column < renderSamples.length; column += 1) {
-    const previous = renderSamples[Math.max(0, column - 1)];
-    const current = renderSamples[column];
-    const next = renderSamples[Math.min(renderSamples.length - 1, column + 1)];
-    drawResolvedTextureColumn(strokeTextureContext, current, column, 1);
-    drawResolvedTextureColumn(strokeTextureContext, previous, column, textureColumnBleed);
-    drawResolvedTextureColumn(strokeTextureContext, next, column, textureColumnBleed);
+  if (nodes.length < 2 || length <= 0) {
+    return strokeTextureCanvas;
+  }
+
+  let segmentIndex = 1;
+  for (let column = 0; column < strokeTextureCanvas.width; column += 1) {
+    const position = Math.min(length, column / textureScale);
+    while (segmentIndex < nodes.length - 1 && nodes[segmentIndex].u < position) {
+      segmentIndex += 1;
+    }
+
+    const previous = nodes[Math.max(0, segmentIndex - 1)];
+    const current = nodes[segmentIndex];
+    const next = nodes[Math.min(nodes.length - 1, segmentIndex + 1)];
+    const segmentLength = Math.max(0.001, current.u - previous.u);
+    const t = clamp01((position - previous.u) / segmentLength);
+    drawBlendedTextureColumn(strokeTextureContext, previous, current, t, column, 1);
+    drawBlendedTextureColumn(strokeTextureContext, previous, current, t, column - 1, textureColumnBleed);
+    drawBlendedTextureColumn(strokeTextureContext, previous, current, t, column + 1, textureColumnBleed);
+
+    if (t > 0.82 && next !== current) {
+      const nextT = (t - 0.82) / 0.18;
+      drawBlendedTextureColumn(strokeTextureContext, current, next, nextT, column, textureColumnBleed * nextT);
+    }
   }
 
   strokeTextureContext.globalAlpha = 1;
   return strokeTextureCanvas;
 }
 
-function drawResolvedTextureColumn(targetContext, sample, column, alpha) {
-  if (!sample || alpha <= 0) {
+function drawBlendedTextureColumn(targetContext, start, end, t, column, alpha) {
+  if (column < 0 || column >= targetContext.canvas.width || alpha <= 0) {
     return;
   }
 
-  if (sample.previousSection && sample.currentSection) {
-    drawTextureColumn(targetContext, sample.previousSection, column, sample.sectionT, alpha);
-    drawTextureColumn(targetContext, sample.currentSection, column, sample.sectionT, alpha * sample.sectionT);
-    return;
+  if (start?.section) {
+    drawTextureColumn(targetContext, start.section, column, alpha);
   }
 
-  drawTextureColumn(targetContext, sample.section, column, sample.sourceT ?? 0.5, alpha);
+  if (end?.section && end !== start && t > 0) {
+    drawTextureColumn(targetContext, end.section, column, alpha * clamp01(t));
+  }
 }
 
-function drawTextureColumn(targetContext, section, column, sourceT, alpha) {
+function drawTextureColumn(targetContext, section, column, alpha) {
   if (!section || alpha <= 0) {
     return;
   }
 
-  const sourceX = Math.min(section.width - 1, Math.max(0, sourceT * (section.width - 1)));
   targetContext.globalAlpha = alpha;
   targetContext.drawImage(
     section,
-    sourceX,
     0,
-    1,
+    0,
+    section.width,
     section.height,
     column,
     0,
@@ -664,7 +925,7 @@ function secondRibbonTriangleMatrix(texture, previousIndex, currentIndex, previo
   };
 }
 
-function buildRibbonSamples(samples) {
+function buildRibbon(samples) {
   const nodes = samples.map(sample => {
     const point = samplePoint(sample);
     return {
@@ -677,7 +938,16 @@ function buildRibbonSamples(samples) {
 
   smoothRibbonPoints(nodes);
   assignRibbonTangents(nodes);
-  return splitLongRibbonSegments(nodes);
+  assignRibbonDistances(nodes);
+
+  const length = nodes.at(-1)?.u || 0;
+  const textureScale = strokeTextureScaleForLength(length);
+  return {
+    nodes,
+    length,
+    textureScale,
+    renderSamples: splitLongRibbonSegments(nodes)
+  };
 }
 
 function smoothRibbonPoints(nodes) {
@@ -708,6 +978,28 @@ function assignRibbonTangents(nodes) {
   }
 }
 
+function assignRibbonDistances(nodes) {
+  let length = 0;
+  if (nodes[0]) {
+    nodes[0].u = 0;
+  }
+
+  for (let index = 1; index < nodes.length; index += 1) {
+    length += distance(nodes[index - 1], nodes[index]);
+    nodes[index].u = length;
+  }
+}
+
+function strokeTextureScaleForLength(length) {
+  const preferredScale = Math.min(maximumStrokeTextureScale, Math.max(1.5, dpr));
+  if (length <= 0) {
+    return preferredScale;
+  }
+
+  const fittingScale = (maximumStrokeTextureWidth - 1) / length;
+  return Math.max(minimumStrokeTextureScale, Math.min(preferredScale, fittingScale));
+}
+
 function splitLongRibbonSegments(nodes) {
   const renderSamples = [];
 
@@ -736,10 +1028,7 @@ function interpolateRibbonNode(start, end, t) {
     y: interpolate(start.y, end.y, t),
     width: interpolate(start.width, end.width, t),
     tangent,
-    previousSection: start.section,
-    currentSection: end.section,
-    sectionT: t,
-    sourceT: t
+    u: interpolate(start.u, end.u, t)
   };
 }
 
@@ -759,10 +1048,22 @@ function normalizeInterpolatedTangent(start, end, t) {
 }
 
 function screenToVideo(point) {
+  const mapping = videoObjectFitCoverMapping();
+  if (!mapping) {
+    return null;
+  }
+
+  return {
+    x: mapping.offsetX + point.x / mapping.scale,
+    y: mapping.offsetY + point.y / mapping.scale,
+    scale: 1 / mapping.scale
+  };
+}
+
+function videoObjectFitCoverMapping() {
   const videoWidth = video.videoWidth;
   const videoHeight = video.videoHeight;
-  const viewWidth = window.innerWidth;
-  const viewHeight = window.innerHeight;
+  const { width: viewWidth, height: viewHeight } = viewSize();
 
   if (!videoWidth || !videoHeight || !viewWidth || !viewHeight) {
     return null;
@@ -775,9 +1076,11 @@ function screenToVideo(point) {
   const offsetY = (videoHeight - visibleHeight) / 2;
 
   return {
-    x: offsetX + point.x / scale,
-    y: offsetY + point.y / scale,
-    scale: 1 / scale
+    offsetX,
+    offsetY,
+    viewWidth,
+    viewHeight,
+    scale
   };
 }
 
@@ -790,9 +1093,10 @@ function pointerPoint(event) {
 }
 
 function samplePoint(sample) {
+  const { width, height } = viewSize();
   return {
-    x: sample.nx * window.innerWidth,
-    y: sample.ny * window.innerHeight
+    x: sample.nx * width,
+    y: sample.ny * height
   };
 }
 
@@ -863,20 +1167,59 @@ function isCameraReady() {
   return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0;
 }
 
-cameraButton.addEventListener("click", startCamera);
-undoButton.addEventListener("click", () => {
+function isCameraRunning() {
+  const stream = video.srcObject;
+  if (!(stream instanceof MediaStream)) {
+    return false;
+  }
+
+  return stream.getVideoTracks().some(track => track.readyState === "live");
+}
+
+for (const control of [cameraButton, saveButton, undoButton, clearButton, widthControl, sampleWidthControl]) {
+  control.addEventListener("pointerdown", stopToolPointerEvent);
+  control.addEventListener("pointermove", stopToolPointerEvent);
+  control.addEventListener("pointerup", stopToolPointerEvent);
+}
+
+cameraButton.addEventListener("click", event => {
+  event.stopPropagation();
+  startCamera();
+});
+saveButton.addEventListener("click", event => {
+  event.stopPropagation();
+  setDrawingState(false);
+  saveComposition();
+});
+undoButton.addEventListener("click", event => {
+  event.stopPropagation();
+  discardActiveStroke();
   strokes.pop();
   resetCommittedStrokes();
   redraw();
 });
-clearButton.addEventListener("click", () => {
+clearButton.addEventListener("pointerdown", () => {
+  discardActiveStroke();
+});
+clearButton.addEventListener("click", event => {
+  event.stopPropagation();
+  discardActiveStroke();
   strokes = [];
-  activeSamples = [];
   clearWorkCanvas(committedContext);
   resetCommittedStrokes();
   redraw();
 });
 widthControl.addEventListener("input", () => {
+  if (!isDrawing) {
+    return;
+  }
+  const previous = activeSamples.at(-1);
+  if (previous) {
+    appendSample(samplePoint(previous), performance.now(), true);
+    scheduleRedraw();
+  }
+});
+sampleWidthControl.addEventListener("input", () => {
   if (!isDrawing) {
     return;
   }
@@ -897,6 +1240,15 @@ canvas.addEventListener("pointerleave", event => {
   }
 });
 
+video.addEventListener("loadeddata", updateCameraButtonVisibility);
+video.addEventListener("playing", updateCameraButtonVisibility);
+video.addEventListener("emptied", updateCameraButtonVisibility);
+document.addEventListener("contextmenu", preventBrowserGesture);
+document.addEventListener("dragstart", preventBrowserGesture);
+document.addEventListener("selectstart", preventBrowserGesture);
+document.addEventListener("gesturestart", preventBrowserGesture);
+document.addEventListener("gesturechange", preventBrowserGesture);
+document.addEventListener("gestureend", preventBrowserGesture);
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 redraw();

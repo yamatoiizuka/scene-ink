@@ -1,6 +1,6 @@
-# Trajectory Type
+# Scene Ink
 
-Vite browser prototype for drawing camera-sampled strokes with pointer input.
+Vite browser prototype for turning camera input into brush strokes with pointer input.
 
 The app uses the live camera feed as source material. Dragging on the screen samples narrow camera lines along the drag path and composites them into a screen-space stroke.
 
@@ -23,4 +23,12 @@ Camera access requires a secure context. The local Vite setup uses a self-signed
 
 ```sh
 npm run build
+```
+
+## Deploy
+
+The production build is served from GitHub Pages:
+
+```text
+https://yamatoiizuka.github.io/scene-ink/
 ```

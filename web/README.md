@@ -1,6 +1,6 @@
-# Trajectory Type Web Prototype
+# Scene Ink Web Prototype
 
-Vite browser prototype for drawing camera-sampled strokes with pointer input.
+Vite browser prototype for turning camera input into brush strokes with pointer input.
 
 Run locally:
 
