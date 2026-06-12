@@ -10,6 +10,7 @@ const saveButton = document.querySelector("#saveButton");
 const widthControl = document.querySelector("#widthControl");
 const sampleWidthControl = document.querySelector("#sampleWidthControl");
 const statusOutput = document.querySelector("#status");
+const standaloneMediaQuery = window.matchMedia("(display-mode: standalone)");
 
 const context = canvas.getContext("2d", { alpha: true, desynchronized: true });
 const freezeContext = freezeCanvas.getContext("2d", { alpha: false });
@@ -69,6 +70,21 @@ function resizeCanvas() {
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   resetCommittedStrokes();
   redraw();
+}
+
+function updateStandaloneMode() {
+  const isStandalone = standaloneMediaQuery.matches || window.navigator.standalone === true;
+  document.documentElement.classList.toggle("is-standalone", isStandalone);
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || import.meta.env.DEV) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+  });
 }
 
 function resizeWorkCanvas(targetCanvas, targetContext, width, height) {
@@ -1243,6 +1259,7 @@ canvas.addEventListener("pointerleave", event => {
 video.addEventListener("loadeddata", updateCameraButtonVisibility);
 video.addEventListener("playing", updateCameraButtonVisibility);
 video.addEventListener("emptied", updateCameraButtonVisibility);
+standaloneMediaQuery.addEventListener?.("change", updateStandaloneMode);
 document.addEventListener("contextmenu", preventBrowserGesture);
 document.addEventListener("dragstart", preventBrowserGesture);
 document.addEventListener("selectstart", preventBrowserGesture);
@@ -1250,6 +1267,8 @@ document.addEventListener("gesturestart", preventBrowserGesture);
 document.addEventListener("gesturechange", preventBrowserGesture);
 document.addEventListener("gestureend", preventBrowserGesture);
 window.addEventListener("resize", resizeCanvas);
+updateStandaloneMode();
+registerServiceWorker();
 resizeCanvas();
 redraw();
 startCamera();

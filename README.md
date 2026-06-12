@@ -19,6 +19,10 @@ https://<mac-lan-ip>:5173/
 
 Camera access requires a secure context. The local Vite setup uses a self-signed certificate, so mobile browsers may show a certificate warning before the camera permission prompt appears.
 
+## iOS Home Screen
+
+Open the HTTPS URL in Safari, then use Share -> Add to Home Screen. The app includes iOS standalone-mode metadata, a touch icon, and a web manifest; camera access still requires the HTTPS origin to be trusted and camera permission to be granted.
+
 ## Build
 
 ```sh
